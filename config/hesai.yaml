@@ -1,0 +1,132 @@
+# ONA config
+
+topics:
+  input:
+    lidar: /hesai/pandar
+    imu: /imu/data
+    env: /small_room
+  # output:
+
+frames: # output frames (the transform between frames will be broadcasted)
+  world: map
+  body: base_link
+  
+num_threads: 20 # OpenMP threads (will be equal to $(nproc) if it is set higher)
+
+sensor_type: 2  # LiDAR type (0: OUSTER \ 1: VELODYNE \ 2: HESAI \ 3: LIVOX)
+
+debug: true     # fill useful intermediate pcl (deskewed, final_raw...) for visualizing purposes
+verbose: true   # print debug/performance board
+
+estimate_extrinsics: true   # continuous estimation of LiDAR-IMU extrinsics 
+time_offset: false           # whether to take into account a possible sync offset between IMU and LiDAR (set to true if they are not properly in sync)
+
+calibration:  # automatic IMU calibration (if all set to false, no calibration will be done)
+  gravity_align: true     # estimate gravity vector
+  accel: false             # estimate lin. accel. bias
+  gyro: false              # estimate ang. vel. bias
+  time: 3.0               # [s] time to estimate (during this time, the robot must be at stand still)
+
+extrinsics: # w.r.t baselink [SI]
+  imu:
+    t: [ 0,0,0 ]
+    R: [ 1.,  0.,  0.,
+          0.,  1.,  0.,
+          0.,  0.,  1. ]
+
+
+
+  lidar:
+    # t: [ 0,0,0 ]
+    # # # # R: [ 0.774, -0.633, 0.022,
+    # # # #     0.633, 0.774,  -0.026,
+    # # # #     -0.0005, 0.03,  0.999 ] # +40º
+    # # # # R: [ 0.774, 0.633, -0.0005,
+    # # # #     -0.633, 0.774,  0.03,
+    # # # #     0.022, -0.026,  0.999 ] # -40º
+    # R: [ 1.,  0.,  0.,
+    #       0.,  1.,  0.,
+    #       0.,  0.,  1. ]
+    t: [0, 0, -0.06334]
+
+    R: [ 
+        -0.064531,  -0.703643,   0.707617,
+        0.99738, -0.0222415,  0.0688393,
+        -0.0326998,   0.710205,   0.703235]
+
+    # R: [
+    #     -0.0801174,  -0.704669,   0.704999,
+    #     0.995952, -0.0276707,  0.0855242,
+    #     -0.0407584,   0.708997,   0.704033]
+
+intrinsics:
+  accel:
+    bias: [4.8066600394948737e-04,1.8591481791391698e-04,2.9535896619327070e-04 ]  # [m/s^2]
+    # bias: [0.01, 0.01, 0.01]  # [m/s^2]
+    sm:   [ 1.,  0.,  0.,
+            0.,  1.,  0.,
+            0.,  0.,  1. ]
+  gyro:
+    bias: [  6.1344105209174259e-05, 6.7378670380355060e-05, 4.6391109238830401e-05 ]  # [rad/s]
+    # bias: [  0.01, 0.01, 0.01 ]  # [rad/s]
+
+filters:
+  cropBox: # prism crop
+    active: false
+    box:
+      min: [ -0.0, -0.0, -0.0 ]  # [m]
+      max: [ 0.0, 0.0, 0.0 ]     # [m]
+
+  voxelGrid:
+    active: true
+    leafSize: [0.25, 0.25, 0.25]
+    small_room_leafSize: [0.05, 0.05, 0.05]
+    medium_room_leafSize: [0.05, 0.05, 0.05]
+    button_trigger: true
+
+  minDistance: # sphere crop
+    active: true
+    value: 0.0  # [m]
+
+  FoV: # crop field of view
+    active: false
+    value: 360  # [deg]
+  
+  rateSampling: # quick downsample
+    active: true
+    value: 7
+
+iKFoM:  # Iterative Kalman Filter on Manifolds lib
+  MAX_NUM_ITERS: 100                # max num+1 of iterations of the KF (limits comp. load)
+  MAX_NUM_MATCHES: 40000           # max num of matches to account for when computing Jacobians (limits comp. load)
+  MAX_NUM_PC2MATCH: 20000        # max num of points to consider when matching with map (limits comp. load)
+  LIMITS: 3                 
+
+  Mapping:
+    NUM_MATCH_POINTS: 10           # num of points that constitute a match
+    MAX_DIST_PLANE: 0.25      # [m] max distance between points of every match
+    PLANES_THRESHOLD: 5.0e-2      # [m] threshold to consider if match points are part of a plane 
+    LocalMapping: true            # whether to keep a fixed size map (moving with the robot) or a limitless map (when active, it limits the memory in use)
+
+  iKDTree: # Incremental KD Tree lib
+    balance: 0.6      # tree balancing param
+    delete: 0.3       # tree deletion param
+    voxel: 0.1        # downsampling value
+    bb_size: 300.0    # [m] Local Map's bounding box dimension
+    bb_range: 50.0    # [m] Local Map's bounding box moving range (if the robot is closer than bb_range to any local map edge, the BB will move)
+
+  covariance:
+    gyro: 0.0001 
+    accel: 0.01
+    bias_gyro: 0.000001
+    bias_accel: 0.0001
+
+  # covariance:
+  #   gyro: 0.25
+  #   accel: 0.5
+  #   bias_gyro: 0.000266
+  #   bias_accel: 0.0043
+
+save:
+  dense_pcd: true
+  skewed_pcd: true                           

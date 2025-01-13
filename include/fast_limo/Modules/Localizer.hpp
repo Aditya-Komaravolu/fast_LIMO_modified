@@ -25,8 +25,60 @@
 #include "fast_limo/Objects/Plane.hpp"
 #include "fast_limo/Utils/Config.hpp"
 #include "fast_limo/Utils/Algorithms.hpp"
+#include <std_msgs/Header.h>  
+#include <std_msgs/String.h>  
+
 
 using namespace fast_limo;
+
+namespace thresholds{
+    template <class ContainerAllocator>
+    struct mapping_tweak_values_ { 
+    typedef mapping_tweak_values_<ContainerAllocator> Type;
+
+
+    mapping_tweak_values_()
+    : header()
+    , env("")
+    , leafSize({0.0,0.0,0.0})
+    {
+    
+    }
+
+    mapping_tweak_values_(const ContainerAllocator& _alloc)
+    : header(_alloc)
+    , env("")
+    , leafSize({0.0,0.0,0.0})
+    {
+    (void)_alloc;
+    }
+
+
+    typedef  ::std_msgs::Header_<ContainerAllocator>  _header_type;
+    _header_type header;
+
+
+    typedef std::vector<float> leaf_size;
+    leaf_size leafSize;
+
+    typedef std::string env_name;
+    env_name env;
+
+
+
+    typedef boost::shared_ptr<thresholds::mapping_tweak_values_<ContainerAllocator> > Ptr;
+    typedef boost::shared_ptr<thresholds::mapping_tweak_values_<ContainerAllocator> const> ConstPtr;
+
+    };
+
+    typedef thresholds::mapping_tweak_values_<std::allocator<void> > mapping_tweak_values;
+
+    typedef boost::shared_ptr<thresholds::mapping_tweak_values > mapping_tweak_valuesPtr;
+    typedef boost::shared_ptr<thresholds::mapping_tweak_values const> mapping_tweak_valuesConstPtr;
+
+
+}
+
 
 class fast_limo::Localizer {
 
@@ -35,6 +87,8 @@ class fast_limo::Localizer {
     public:
         pcl::PointCloud<PointType>::ConstPtr pc2match; // pointcloud to match in Xt2 (last_state) frame
 
+        // Config struct
+        Config config;
     private:
         // Iterated Kalman Filter on Manifolds (FASTLIOv2)
         esekfom::esekf<state_ikfom, 12, input_ikfom> _iKFoM;
@@ -45,8 +99,7 @@ class fast_limo::Localizer {
         SensorType sensor;
         IMUmeas last_imu;
 
-        // Config struct
-        Config config;
+
 
         // Matches (debug aux var.)
         Matches matches;
@@ -60,6 +113,8 @@ class fast_limo::Localizer {
         pcl::PointCloud<PointType>::ConstPtr deskewed_scan; // in global/world frame
         pcl::PointCloud<PointType>::Ptr final_raw_scan;     // in global/world frame
         pcl::PointCloud<PointType>::Ptr final_scan;         // in global/world frame
+        pcl::PointCloud<PointType>::Ptr accumulated_cloud;
+        pcl::PointCloud<PointType>::Ptr accumulated_downsampled_cloud;
 
         // Time related var.
         double scan_stamp;
@@ -84,6 +139,14 @@ class fast_limo::Localizer {
 
         // IMU buffer
         boost::circular_buffer<IMUmeas> imu_buffer;
+
+        // boost::circular_buffer<std::string> env_buffer;
+
+        std::deque<thresholds::mapping_tweak_values::ConstPtr> env_buffer;
+        thresholds::mapping_tweak_values thres_ptr;
+
+        bool button_trigger;
+        std::string global_env_state;
 
         // Propagated states buffer
         boost::circular_buffer<State> propagated_buffer;
@@ -138,6 +201,9 @@ class fast_limo::Localizer {
         // Get output
         pcl::PointCloud<PointType>::Ptr get_pointcloud();
         pcl::PointCloud<PointType>::Ptr get_finalraw_pointcloud();
+        pcl::PointCloud<PointType>::Ptr get_accumulated_pointcloud();
+        pcl::PointCloud<PointType>::Ptr get_accumulated_downsampled_pointcloud();
+        void append_msg_to_env_buffer(const std_msgs::String::ConstPtr& msg);
 
         pcl::PointCloud<PointType>::ConstPtr get_orig_pointcloud();
         pcl::PointCloud<PointType>::ConstPtr get_deskewed_pointcloud();
@@ -165,6 +231,8 @@ class fast_limo::Localizer {
         // Backpropagation
         void propagateImu(const IMUmeas& imu);
         void propagateImu(double t1, double t2);
+        void set_voxel_leaf_size(float leaf_size);
+        fast_limo::Config& get_config();
 
     private:
         void init_iKFoM();
@@ -183,6 +251,12 @@ class fast_limo::Localizer {
                                   boost::circular_buffer<IMUmeas>::reverse_iterator& begin_imu_it,
                                   boost::circular_buffer<IMUmeas>::reverse_iterator& end_imu_it);
         bool isInRange(PointType& p);
+
+
+        // Method to update the accumulated point cloud
+        // void update_accumulated_pointcloud(pcl::PointCloud<PointType>::Ptr new_cloud);
+        void update_accumulated_pointcloud(pcl::PointCloud<PointType>::Ptr new_cloud, pcl::PointCloud<PointType>::Ptr new_downsampled_cloud);
+
 
         void getCPUinfo();
         void debugVerbose();

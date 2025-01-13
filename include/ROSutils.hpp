@@ -51,6 +51,7 @@
 #include <pcl_ros/impl/transforms.hpp>
 #include <pcl_ros/point_cloud.h>
 #include <pcl_ros/transforms.h> 
+#include <pcl/io/pcd_io.h>
 
 namespace tf_limo {
 

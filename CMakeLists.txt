@@ -8,6 +8,8 @@ find_package( PCL 1.8 REQUIRED )
 include_directories(${PCL_INCLUDE_DIRS})
 add_definitions(${PCL_DEFINITIONS})
 link_directories(${PCL_LIBRARY_DIRS})
+add_definitions(-DROOT_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/\")
+
 
 message("PCL version: ${PCL_VERSION}")
 
@@ -36,6 +38,18 @@ find_package(catkin REQUIRED COMPONENTS
   nav_msgs
   tf2
 )
+
+#add service files
+add_service_files(
+  FILES
+  manualTrigger.srv
+)
+
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+)
+
 
 catkin_package(
  INCLUDE_DIRS include

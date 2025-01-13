@@ -30,6 +30,30 @@
             this->pc2match       = pcl::PointCloud<PointType>::ConstPtr (boost::make_shared<pcl::PointCloud<PointType>>());
             this->final_raw_scan = pcl::PointCloud<PointType>::Ptr (boost::make_shared<pcl::PointCloud<PointType>>());
             this->final_scan     = pcl::PointCloud<PointType>::Ptr (boost::make_shared<pcl::PointCloud<PointType>>());
+            this->accumulated_cloud = boost::make_shared<pcl::PointCloud<PointType>>();
+            this->accumulated_downsampled_cloud = boost::make_shared<pcl::PointCloud<PointType>>();
+        }
+
+        void Localizer::update_accumulated_pointcloud(pcl::PointCloud<PointType>::Ptr new_cloud, pcl::PointCloud<PointType>::Ptr new_downsampled_cloud) {
+            // Add the new cloud to the accumulated cloud
+            *this->accumulated_cloud += *new_cloud;
+            *this->accumulated_downsampled_cloud += *new_downsampled_cloud;
+        }
+
+        pcl::PointCloud<PointType>::Ptr Localizer::get_accumulated_pointcloud() {
+            return this->accumulated_cloud;
+        }
+
+        pcl::PointCloud<PointType>::Ptr Localizer::get_accumulated_downsampled_pointcloud() {
+            return this->accumulated_downsampled_cloud;
+        }
+
+        void Localizer::set_voxel_leaf_size(float leaf_size) {
+            // Update voxel filter leaf size with new value
+            this->voxel_filter.setLeafSize(leaf_size, leaf_size, leaf_size);
+            
+            // Update config to maintain consistency
+            this->config.filters.leafSize = {leaf_size, leaf_size, leaf_size};
         }
 
         void Localizer::init(Config& cfg){
@@ -84,6 +108,10 @@
             this->extr.lidar2baselink_T = Eigen::Matrix4f::Identity();
             this->extr.lidar2baselink_T.block(0, 3, 3, 1) = this->extr.lidar2baselink.t;
             this->extr.lidar2baselink_T.block(0, 0, 3, 3) = this->extr.lidar2baselink.R;
+
+            this->button_trigger = config.button_trigger;
+
+            this->global_env_state = "None";
 
             // Avoid unnecessary warnings from PCL
             pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
@@ -213,6 +241,89 @@
             return cov;
         }
 
+        fast_limo::Config& Localizer::get_config(){
+            return this->config;
+        }
+
+        void Localizer::append_msg_to_env_buffer(const std_msgs::String::ConstPtr& msg){
+            std::cout << "current env location: " << msg->data << std::endl;
+            std::string data = msg->data;
+            
+            // Extract room type
+            std::string room_type = data.substr(data.find("room:")+6, data.find(",")-6);
+            // Remove any whitespace
+            room_type.erase(std::remove_if(room_type.begin(), room_type.end(), ::isspace), room_type.end());
+            
+            // Extract seconds and nanoseconds
+            std::string secsSubstring = data.substr(data.find("secs:")+5, data.find(",", data.find("secs:"))-data.find("secs:")-5);
+            std::string nsecsSubstring = data.substr(data.find("nsecs:")+6);
+            
+            std::cout << "Room type: " << room_type << std::endl;
+            std::cout << "Msg secs: " << secsSubstring << std::endl;
+            std::cout << "Msg nsecs: " << nsecsSubstring << std::endl;
+            
+            long secs, nsecs;
+            std::istringstream(secsSubstring) >> secs;
+            std::istringstream(nsecsSubstring) >> nsecs;
+            double current_timestamp = static_cast<double>(secs) + static_cast<double>(nsecs) * 1e-9;
+            ros::Time ros_timestamp;
+            ros_timestamp.fromSec(current_timestamp);
+
+            std::string small_str = "small";
+            std::string medium_str = "medium";
+            std::string large_str = "large";
+
+            if (room_type == small_str) {
+                std::cout << "Entered small room. Setting LEAF SIZE: ";
+                for (float size : this->config.filters.small_room_leafSize) {
+                    std::cout << size << " ";
+                }
+                std::cout << std::endl;
+
+                // // Set threshold parameters
+                thres_ptr.header.stamp = ros_timestamp;
+                thres_ptr.leafSize = this->config.filters.small_room_leafSize;
+                thres_ptr.env = "small";
+
+                thresholds::mapping_tweak_values::ConstPtr push_thres = boost::make_shared<thresholds::mapping_tweak_values>(thres_ptr);
+                this->env_buffer.push_back(push_thres);
+
+            } 
+            else if (room_type == medium_str) {
+                std::cout << "Entered Medium Room. Setting LEAF SIZE: " ;
+                for (float size : this->config.filters.medium_room_leafSize) {
+                    std::cout << size << " ";
+                }
+                std::cout << std::endl;
+                
+                thres_ptr.header.stamp = ros_timestamp;
+                thres_ptr.leafSize = this->config.filters.medium_room_leafSize;
+                thres_ptr.env = "medium";
+                
+                thresholds::mapping_tweak_values::ConstPtr push_thres = boost::make_shared<thresholds::mapping_tweak_values>(thres_ptr);
+                this->env_buffer.push_back(push_thres);
+            }
+            else if (room_type == large_str) {
+                std::cout << "Entered Large Room. Setting LEAF SIZE: ";
+                for (float size : this->config.filters.leafSize) {
+                    std::cout << size << " ";
+                }
+                std::cout << std::endl;
+                thres_ptr.header.stamp = ros_timestamp;
+                thres_ptr.leafSize = this->config.filters.leafSize;
+                thres_ptr.env = "large";
+
+
+                thresholds::mapping_tweak_values::ConstPtr push_thres = boost::make_shared<thresholds::mapping_tweak_values>(thres_ptr);
+
+                this->env_buffer.push_back(push_thres);
+                }
+            else {
+                // ROS_WARN("Room not specified! Room type not recognized: %s", room_type.c_str());
+                std::cout << "Room not specified! Room type not recognized: " << room_type << std::endl;
+            }
+        }
+
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
         /////////////////////////////////           Principal callbacks/threads        /////////////////////////////////////////////////
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -232,6 +343,66 @@
             if(this->imu_buffer.empty()){
                 std::cout << "FAST_LIMO::IMU buffer is empty!\n";
                 return;
+            }
+
+            //change leafsize from buffer if button_trigger is enabled
+            if(this->button_trigger){
+                //if enbaled
+                if (!this->env_buffer.empty() && this->env_buffer.front()->header.stamp.toSec() < time_stamp){
+                    //update the threshold values
+                    //update the voxel size and down sample size
+
+                    auto threshold_values = this->env_buffer.front();
+                    auto leafsize = threshold_values->leafSize;
+                    auto env_state = threshold_values->env;
+
+                    if (this->global_env_state == "None"){
+                        this->global_env_state = env_state;
+                        //env changed
+                        this->voxel_filter.setLeafSize(leafsize[0], leafsize[1], leafsize[2]);
+
+
+                        //print in green
+                        std::cout << "\033[1;32mEnvironment CHANGED: " << threshold_values->env << "\033[0m" << std::endl;
+                        std::cout << "\033[1;32mLEAF SIZE set to: ";
+                        for (float size : leafsize) {
+                            std::cout << size << " ";
+                        }
+                        std::cout << "\033[0m" << std::endl;
+                        
+                    }
+                    else{
+                        if (env_state != this->global_env_state){
+                            this->global_env_state = env_state;
+                            //env changed
+                            this->voxel_filter.setLeafSize(leafsize[0], leafsize[1], leafsize[2]);
+
+                            //print in green
+                            std::cout << "\033[1;32mEnvironment CHANGED: " << threshold_values->env << "\033[0m" << std::endl;
+                            std::cout << "\033[1;32mLEAF SIZE set to: ";
+                            for (float size : leafsize) {
+                                std::cout << size << " ";
+                            }
+                            std::cout << "\033[0m" << std::endl;
+
+
+                            // if (save_odometry_last_state){
+
+                            //     save_last_odom_state();
+
+                            //     save_pointcloud_until_last_state();
+                            // }
+                            // mtx_buffer.unlock();
+                            // sig_buffer.notify_all();
+                        }
+                        else{
+                            //env not changed //print in red
+                            std::cout << "\033[1;31mEnvironment NOT CHANGED: " << threshold_values->env << "\033[0m" << std::endl;
+                        }
+                    }
+                    env_buffer.pop_front();
+
+                }
             }
 
             // Remove NaNs
@@ -369,6 +540,9 @@
             }
 
             this->prev_scan_stamp = this->scan_stamp;
+
+            // Assuming `final_scan` is the final processed point cloud
+            update_accumulated_pointcloud(final_raw_scan, final_scan);
         }
 
         void Localizer::updateIMU(IMUmeas& raw_imu){
@@ -1176,6 +1350,28 @@
                 << "RAM Allocation   :: " + to_string_with_precision(resident_set/1000., 2) + " MB"
                 << "|" << std::endl;
 
+            if(this->button_trigger){
+                std::cout << "|===================================================================|" << std::endl;
+
+                std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                    << "Leaf Size: " + std::to_string(this->config.filters.leafSize[0]) + " " + std::to_string(this->config.filters.leafSize[1]) + " " + std::to_string(this->config.filters.leafSize[2])
+                    << "|" << std::endl;
+                
+                if(!this->env_buffer.empty()){
+                    std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                        << "Current Env: " << this->env_buffer.front()->env
+                        << "|" << std::endl;
+                }
+                else{
+                    std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                        << "Current Env: " << "NaN"
+                        << "|" << std::endl;
+                }
+
+                std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                    << "Global Env: " << this->global_env_state
+                    << "|" << std::endl;
+            }
             std::cout << "+-------------------------------------------------------------------+" << std::endl;
 
         }

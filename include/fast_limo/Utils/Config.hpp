@@ -25,6 +25,7 @@ struct fast_limo::Config{
     struct Topics{
         std::string lidar;
         std::string imu;
+        std::string env_topic;
     } topics;
 
     struct Extrinsics{
@@ -45,6 +46,8 @@ struct fast_limo::Config{
         std::vector<float> cropBoxMax;  // crop filter
         bool crop_active;               // crop filter
         std::vector<float> leafSize;    // voxel grid filter
+        std::vector<float> small_room_leafSize;
+        std::vector<float> medium_room_leafSize;
         bool voxel_active;              // voxel grid filter
         double min_dist;                // norm/dist filter
         bool dist_active;               // norm/dist filter
@@ -90,6 +93,10 @@ struct fast_limo::Config{
     bool debug;         // whether to copy intermediate point clouds into aux variables (for visualization)
     bool verbose;       // whether to print debugging/performance board
 
+    bool button_trigger;      // whether to trigger the button
+
+    bool save_dense_pcd;
+    bool save_skewed_pcd;
     // Other
     int sensor_type;        // LiDAR type
     int num_threads;        // num of threads to be used by OpenMP
