@@ -74,8 +74,8 @@
             this->init_iKFoM();
 
             // Set buffer capacity
-            this->imu_buffer.set_capacity(2000);
-            this->propagated_buffer.set_capacity(2000);
+            // this->imu_buffer.set_capacity(1000);
+            // this->propagated_buffer.set_capacity(1000);
 
             // PCL filters setup
             this->crop_filter.setNegative(true);
@@ -109,6 +109,15 @@
             this->extr.lidar2baselink_T.block(0, 3, 3, 1) = this->extr.lidar2baselink.t;
             this->extr.lidar2baselink_T.block(0, 0, 3, 3) = this->extr.lidar2baselink.R;
 
+            this->sync_status = true;
+
+            this->last_timestamp_imu = -1.0;
+            this->last_timestamp_lidar = -1.0;
+            this->last_imu_processed_time = -1.0;
+
+
+            this->scan_finished = false;
+
             this->button_trigger = config.button_trigger;
 
             this->global_env_state = "None";
@@ -130,10 +139,10 @@
 
             if(config.verbose){
                 // set up buffer capacities
-                this->imu_rates.set_capacity(1000);
-                this->lidar_rates.set_capacity(1000);
-                this->cpu_times.set_capacity(1000);
-                this->cpu_percents.set_capacity(1000);
+                // this->imu_rates.set_capacity(1000);
+                // this->lidar_rates.set_capacity(1000);
+                // this->cpu_times.set_capacity(1000);
+                // this->cpu_percents.set_capacity(1000);
             }
         }
 
@@ -246,7 +255,7 @@
         }
 
         void Localizer::append_msg_to_env_buffer(const std_msgs::String::ConstPtr& msg){
-            std::cout << "current env location: " << msg->data << std::endl;
+            // std::cout << "current env location: " << msg->data << std::endl;
             std::string data = msg->data;
             
             // Extract room type
@@ -258,9 +267,9 @@
             std::string secsSubstring = data.substr(data.find("secs:")+5, data.find(",", data.find("secs:"))-data.find("secs:")-5);
             std::string nsecsSubstring = data.substr(data.find("nsecs:")+6);
             
-            std::cout << "Room type: " << room_type << std::endl;
-            std::cout << "Msg secs: " << secsSubstring << std::endl;
-            std::cout << "Msg nsecs: " << nsecsSubstring << std::endl;
+            // std::cout << "Room type: " << room_type << std::endl;
+            // std::cout << "Msg secs: " << secsSubstring << std::endl;
+            // std::cout << "Msg nsecs: " << nsecsSubstring << std::endl;
             
             long secs, nsecs;
             std::istringstream(secsSubstring) >> secs;
@@ -272,9 +281,9 @@
             std::string small_str = "small";
             std::string medium_str = "medium";
             std::string large_str = "large";
-
+            bool local_mapping = false;
             if (room_type == small_str) {
-                std::cout << "Entered small room. Setting LEAF SIZE: ";
+                // std::cout << "Entered small room. Setting LEAF SIZE: ";
                 for (float size : this->config.filters.small_room_leafSize) {
                     std::cout << size << " ";
                 }
@@ -284,13 +293,16 @@
                 thres_ptr.header.stamp = ros_timestamp;
                 thres_ptr.leafSize = this->config.filters.small_room_leafSize;
                 thres_ptr.env = "small";
-
+                thres_ptr.ikdtree_bb_size = this->config.ikfom.mapping.ikdtree.small.bb_size;
+                thres_ptr.ikdtree_bb_range = this->config.ikfom.mapping.ikdtree.small.bb_range;
+                thres_ptr.localmapping = false;
+                thres_ptr.planar_threshold = this->config.ikfom.mapping.small_room_planar_threshold;
                 thresholds::mapping_tweak_values::ConstPtr push_thres = boost::make_shared<thresholds::mapping_tweak_values>(thres_ptr);
                 this->env_buffer.push_back(push_thres);
 
             } 
             else if (room_type == medium_str) {
-                std::cout << "Entered Medium Room. Setting LEAF SIZE: " ;
+                // std::cout << "Entered Medium Room. Setting LEAF SIZE: " ;
                 for (float size : this->config.filters.medium_room_leafSize) {
                     std::cout << size << " ";
                 }
@@ -299,12 +311,15 @@
                 thres_ptr.header.stamp = ros_timestamp;
                 thres_ptr.leafSize = this->config.filters.medium_room_leafSize;
                 thres_ptr.env = "medium";
-                
+                thres_ptr.ikdtree_bb_size = this->config.ikfom.mapping.ikdtree.medium.bb_size;
+                thres_ptr.ikdtree_bb_range = this->config.ikfom.mapping.ikdtree.medium.bb_range;
+                thres_ptr.localmapping = false;
+                thres_ptr.planar_threshold = this->config.ikfom.mapping.medium_room_planar_threshold;
                 thresholds::mapping_tweak_values::ConstPtr push_thres = boost::make_shared<thresholds::mapping_tweak_values>(thres_ptr);
                 this->env_buffer.push_back(push_thres);
             }
             else if (room_type == large_str) {
-                std::cout << "Entered Large Room. Setting LEAF SIZE: ";
+                // std::cout << "Entered Large Room. Setting LEAF SIZE: ";
                 for (float size : this->config.filters.leafSize) {
                     std::cout << size << " ";
                 }
@@ -312,8 +327,10 @@
                 thres_ptr.header.stamp = ros_timestamp;
                 thres_ptr.leafSize = this->config.filters.leafSize;
                 thres_ptr.env = "large";
-
-
+                thres_ptr.ikdtree_bb_size = this->config.ikfom.mapping.ikdtree.cube_size;
+                thres_ptr.ikdtree_bb_range = this->config.ikfom.mapping.ikdtree.rm_range;
+                thres_ptr.localmapping = true;
+                thres_ptr.planar_threshold = this->config.ikfom.mapping.PLANE_THRESHOLD;
                 thresholds::mapping_tweak_values::ConstPtr push_thres = boost::make_shared<thresholds::mapping_tweak_values>(thres_ptr);
 
                 this->env_buffer.push_back(push_thres);
@@ -323,6 +340,83 @@
                 std::cout << "Room not specified! Room type not recognized: " << room_type << std::endl;
             }
         }
+
+        bool Localizer::get_sync_status(){
+            return this->sync_status;
+        }
+
+        // bool Localizer::preprocess_lidar_msg(const sensor_msgs::PointCloud2::ConstPtr& msg, pcl::PointCloud<PointType>::Ptr pcl_out){
+            
+        //     // if(pcl_out->points.size() < 1) 
+        //     //     return false;
+
+        //     // individual point timestamps should be relative to this time
+        //     double sweep_ref_time = this->last_timestamp_lidar;
+        //     bool end_of_sweep = this->config.end_of_sweep;
+
+        //     // sort points by timestamp
+        //     std::function<bool(const PointType&, const PointType&)> point_time_cmp;
+        //     std::function<double(PointType&)> extract_point_time;
+
+        //     if (this->sensor == fast_limo::SensorType::OUSTER) {
+
+        //         point_time_cmp = [&end_of_sweep](const PointType& p1, const PointType& p2)
+        //         {   if (end_of_sweep) return p1.t > p2.t; 
+        //             else return p1.t < p2.t; };
+        //         extract_point_time = [&sweep_ref_time, &end_of_sweep](PointType& pt)
+        //         {   if (end_of_sweep) return sweep_ref_time - pt.t * 1e-9f; 
+        //             else return sweep_ref_time + pt.t * 1e-9f; };
+
+        //     } else if (this->sensor == fast_limo::SensorType::VELODYNE) {
+                
+        //         point_time_cmp = [&end_of_sweep](const PointType& p1, const PointType& p2)
+        //         {   if (end_of_sweep) return p1.time > p2.time; 
+        //             else return p1.time < p2.time; };
+        //         extract_point_time = [&sweep_ref_time, &end_of_sweep](PointType& pt)
+        //         {   if (end_of_sweep) return sweep_ref_time - pt.time; 
+        //             else return sweep_ref_time + pt.time; };
+
+        //     } else if (this->sensor == fast_limo::SensorType::HESAI) {
+
+        //         point_time_cmp = [](const PointType& p1, const PointType& p2)
+        //         { return p1.timestamp < p2.timestamp; };
+        //         extract_point_time = [](PointType& pt)
+        //         { return pt.timestamp; };
+
+        //     } else if (this->sensor == fast_limo::SensorType::LIVOX) {
+                
+        //         point_time_cmp = [](const PointType& p1, const PointType& p2)
+        //         { return p1.timestamp < p2.timestamp; };
+        //         extract_point_time = [](PointType& pt)
+        //         { return pt.timestamp * 1e-9f; };
+        //     } else {
+        //         std::cout << "-------------------------------------------------------------------\n";
+        //         std::cout << "FAST_LIMO::FATAL ERROR: LiDAR sensor type unknown or not specified!\n";
+        //         std::cout << "-------------------------------------------------------------------\n";
+        //         return boost::make_shared<pcl::PointCloud<PointType>>();
+        //     }
+
+        //     // copy points into deskewed_scan_ in order of timestamp
+        //     pcl::PointCloud<PointType>::Ptr deskewed_scan_ (boost::make_shared<pcl::PointCloud<PointType>>());
+        //     deskewed_scan_->points.resize(pc->points.size());
+            
+        //     std::partial_sort_copy(pc->points.begin(), pc->points.end(),
+        //                             deskewed_scan_->points.begin(), deskewed_scan_->points.end(), point_time_cmp);
+
+        //     if(deskewed_scan_->points.size() < 1){
+        //         std::cout << "FAST_LIMO::ERROR: failed to sort input pointcloud!\n";
+        //         return boost::make_shared<pcl::PointCloud<PointType>>();
+        //     }
+
+        //     // compute offset between sweep reference time and IMU data
+        //     double offset = 0.0;
+        //     if (config.time_offset) {
+        //         offset = this->imu_stamp - extract_point_time(deskewed_scan_->points[deskewed_scan_->points.size()-1]) - 1.e-4; // automatic sync (not precise!)
+        //         if(offset > 0.0) offset = 0.0; // don't jump into future
+        //     }
+
+        // }
+
 
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
         /////////////////////////////////           Principal callbacks/threads        /////////////////////////////////////////////////
@@ -334,16 +428,37 @@
 
             if(raw_pc->points.size() < 1){
                 std::cout << "FAST_LIMO::Raw PointCloud is empty!\n";
+                this->sync_status = false;
                 return;
             }
 
-            if(!this->imu_calibrated_)
+            if(!this->imu_calibrated_){
+                // this->sync_status = false;
                 return;
+            }
 
             if(this->imu_buffer.empty()){
                 std::cout << "FAST_LIMO::IMU buffer is empty!\n";
+                this->sync_status = false;
                 return;
             }
+
+            if (this->last_timestamp_imu < this->last_timestamp_lidar){
+
+                bool imu_queue_finished = (ros::Time::now().toSec() - this->last_imu_processed_time) > 60;
+                std::stringstream stream;
+                stream << std::fixed << std::setprecision(10) << "imu_queue not pushed for 60secs, marking imu queue as finished"
+                    << " last_imu_processed_time: " << this->last_imu_processed_time << " , current_time: " << ros::Time::now().toSec();
+
+                if (imu_queue_finished) {
+                    std::cout << stream.str() << std::endl;
+                }
+                this->sync_status = false;
+                this->scan_finished = true;
+                return;
+            }   
+
+            this->last_timestamp_lidar = time_stamp;
 
             //change leafsize from buffer if button_trigger is enabled
             if(this->button_trigger){
@@ -355,20 +470,23 @@
                     auto threshold_values = this->env_buffer.front();
                     auto leafsize = threshold_values->leafSize;
                     auto env_state = threshold_values->env;
+                    auto local_mapping = threshold_values->localmapping;
+                    auto bb_size = threshold_values->ikdtree_bb_size;
+                    auto bb_range = threshold_values->ikdtree_bb_range;
+                    auto planar_threshold = threshold_values->planar_threshold;
 
                     if (this->global_env_state == "None"){
                         this->global_env_state = env_state;
                         //env changed
                         this->voxel_filter.setLeafSize(leafsize[0], leafsize[1], leafsize[2]);
 
-
                         //print in green
-                        std::cout << "\033[1;32mEnvironment CHANGED: " << threshold_values->env << "\033[0m" << std::endl;
-                        std::cout << "\033[1;32mLEAF SIZE set to: ";
-                        for (float size : leafsize) {
-                            std::cout << size << " ";
-                        }
-                        std::cout << "\033[0m" << std::endl;
+                        // std::cout << "\033[1;32mEnvironment CHANGED: " << threshold_values->env << "\033[0m" << std::endl;
+                        // std::cout << "\033[1;32mLEAF SIZE set to: ";
+                        // for (float size : leafsize) {
+                        //     std::cout << size << " ";
+                        // }
+                        // std::cout << "\033[0m" << std::endl;
                         
                     }
                     else{
@@ -377,13 +495,24 @@
                             //env changed
                             this->voxel_filter.setLeafSize(leafsize[0], leafsize[1], leafsize[2]);
 
-                            //print in green
-                            std::cout << "\033[1;32mEnvironment CHANGED: " << threshold_values->env << "\033[0m" << std::endl;
-                            std::cout << "\033[1;32mLEAF SIZE set to: ";
-                            for (float size : leafsize) {
-                                std::cout << size << " ";
+                            if (this->config.ikfom.mapping.ikdtree.dynamic_bb){
+                                this->config.ikfom.mapping.ikdtree.cube_size = bb_size;
+                                this->config.ikfom.mapping.ikdtree.rm_range = bb_range; 
                             }
-                            std::cout << "\033[0m" << std::endl;
+                            if (this->config.ikfom.mapping.dynamic_mapping){
+                                this->config.ikfom.mapping.local_mapping = local_mapping;
+                            }
+
+                            if (this->config.ikfom.mapping.change_planar_threshold){
+                                this->config.ikfom.mapping.PLANE_THRESHOLD = planar_threshold;
+                            }
+                            //print in green
+                            // std::cout << "\033[1;32mEnvironment CHANGED: " << threshold_values->env << "\033[0m" << std::endl;
+                            // std::cout << "\033[1;32mLEAF SIZE set to: ";
+                            // for (float size : leafsize) {
+                            //     std::cout << size << " ";
+                            // }
+                            // std::cout << "\033[0m" << std::endl;
 
 
                             // if (save_odometry_last_state){
@@ -397,7 +526,7 @@
                         }
                         else{
                             //env not changed //print in red
-                            std::cout << "\033[1;31mEnvironment NOT CHANGED: " << threshold_values->env << "\033[0m" << std::endl;
+                            // std::cout << "\033[1;31mEnvironment NOT CHANGED: " << threshold_values->env << "\033[0m" << std::endl;
                         }
                     }
                     env_buffer.pop_front();
@@ -543,6 +672,10 @@
 
             // Assuming `final_scan` is the final processed point cloud
             update_accumulated_pointcloud(final_raw_scan, final_scan);
+
+            // this->imu_buffer.pop_back();
+            // this->propagated_buffer.pop_back();
+            this->sync_status = true;
         }
 
         void Localizer::updateIMU(IMUmeas& raw_imu){
@@ -763,8 +896,10 @@
             Q.block<3, 3>(6, 6) = config.ikfom.cov_bias_gyro * Eigen::Matrix<double, 3, 3>::Identity();
             Q.block<3, 3>(9, 9) = config.ikfom.cov_bias_acc * Eigen::Matrix<double, 3, 3>::Identity();
 
-            boost::circular_buffer<IMUmeas>::reverse_iterator begin_imu_it;
-            boost::circular_buffer<IMUmeas>::reverse_iterator end_imu_it;
+            // boost::circular_buffer<IMUmeas>::reverse_iterator begin_imu_it;
+            // boost::circular_buffer<IMUmeas>::reverse_iterator end_imu_it;
+            std::deque<IMUmeas>::reverse_iterator begin_imu_it;
+            std::deque<IMUmeas>::reverse_iterator end_imu_it;
             if (not this->imuMeasFromTimeRange(t1, t2, begin_imu_it, end_imu_it)) {
                 // not enough IMU measurements, return empty vector
                 std::cout << "FAST_LIMO::propagateImu(): not enough IMU measurements\n";
@@ -1004,8 +1139,11 @@
 
             States imu_se3;
 
-            boost::circular_buffer<State>::reverse_iterator begin_prop_it;
-            boost::circular_buffer<State>::reverse_iterator end_prop_it;
+            // boost::circular_buffer<State>::reverse_iterator begin_prop_it;
+            // boost::circular_buffer<State>::reverse_iterator end_prop_it;
+
+            std::deque<State>::reverse_iterator begin_prop_it;
+            std::deque<State>::reverse_iterator end_prop_it;
             if (not this->propagatedFromTimeRange(start_time, end_time, begin_prop_it, end_prop_it)) {
                 // not enough IMU measurements, return empty vector
                 std::cout << "FAST_LIMO::propagatedFromTimeRange(): not enough propagated states!\n";
@@ -1023,11 +1161,17 @@
             return fabs(atan2(p.y, p.x)) < this->config.filters.fov_angle;
         }
 
-        bool Localizer::propagatedFromTimeRange(double start_time, double end_time,
-                                                boost::circular_buffer<State>::reverse_iterator& begin_prop_it,
-                                                boost::circular_buffer<State>::reverse_iterator& end_prop_it) {
+        // bool Localizer::propagatedFromTimeRange(double start_time, double end_time,
+        //                                         boost::circular_buffer<State>::reverse_iterator& begin_prop_it,
+        //                                         boost::circular_buffer<State>::reverse_iterator& end_prop_it) {
 
-            if (this->propagated_buffer.empty() || this->propagated_buffer.front().time < end_time) {
+        bool Localizer::propagatedFromTimeRange(double start_time, double end_time,
+                                                std::deque<State>::reverse_iterator& begin_prop_it,
+                                                std::deque<State>::reverse_iterator& end_prop_it) {
+
+            // std::cout << "propagatedFromTimeRange: " << this->propagated_buffer.size() << std::endl;
+            // if (this->propagated_buffer.empty() || this->propagated_buffer.front().time < end_time) {
+            if (this->propagated_buffer.empty()) {
                 // Wait for the latest IMU data
                 std::cout << "PROPAGATE WAITING...\n";
                 std::cout << "     - buffer time: " << propagated_buffer.front().time << std::endl;
@@ -1056,15 +1200,23 @@
             prop_it++;
 
             // Set reverse iterators (to iterate forward in time)
-            end_prop_it = boost::circular_buffer<State>::reverse_iterator(last_prop_it);
-            begin_prop_it = boost::circular_buffer<State>::reverse_iterator(prop_it);
+            // end_prop_it = boost::circular_buffer<State>::reverse_iterator(last_prop_it);
+            // begin_prop_it = boost::circular_buffer<State>::reverse_iterator(prop_it);
+
+            end_prop_it = std::deque<State>::reverse_iterator(last_prop_it);
+            begin_prop_it = std::deque<State>::reverse_iterator(prop_it);
+
 
             return true;
         }
 
+        // bool Localizer::imuMeasFromTimeRange(double start_time, double end_time,
+        //                                         boost::circular_buffer<IMUmeas>::reverse_iterator& begin_imu_it,
+        //                                         boost::circular_buffer<IMUmeas>::reverse_iterator& end_imu_it) {
+
         bool Localizer::imuMeasFromTimeRange(double start_time, double end_time,
-                                                boost::circular_buffer<IMUmeas>::reverse_iterator& begin_imu_it,
-                                                boost::circular_buffer<IMUmeas>::reverse_iterator& end_imu_it) {
+                                                std::deque<IMUmeas>::reverse_iterator& begin_imu_it,
+                                                std::deque<IMUmeas>::reverse_iterator& end_imu_it) {
 
             if (this->imu_buffer.empty() || this->imu_buffer.front().stamp < end_time) {
                 return false;
@@ -1090,8 +1242,12 @@
             imu_it++;
 
             // Set reverse iterators (to iterate forward in time)
-            end_imu_it = boost::circular_buffer<IMUmeas>::reverse_iterator(last_imu_it);
-            begin_imu_it = boost::circular_buffer<IMUmeas>::reverse_iterator(imu_it);
+            // end_imu_it = boost::circular_buffer<IMUmeas>::reverse_iterator(last_imu_it);
+            // begin_imu_it = boost::circular_buffer<IMUmeas>::reverse_iterator(imu_it);
+
+            end_imu_it = std::deque<IMUmeas>::reverse_iterator(last_imu_it);
+            begin_imu_it = std::deque<IMUmeas>::reverse_iterator(imu_it);
+
 
             return true;
         }
@@ -1349,6 +1505,34 @@
             std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
                 << "RAM Allocation   :: " + to_string_with_precision(resident_set/1000., 2) + " MB"
                 << "|" << std::endl;
+            std::cout << "|===================================================================|" << std::endl;
+            
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "Dynamic Mapping: " + std::to_string(this->config.ikfom.mapping.dynamic_mapping)
+                << "|" << std::endl;
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "Local Mapping: " + std::to_string(this->config.ikfom.mapping.local_mapping)
+                << "|" << std::endl;
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "Dynamic BB: " + std::to_string(this->config.ikfom.mapping.ikdtree.dynamic_bb)
+                << "|" << std::endl;
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "BB Size: " + std::to_string(this->config.ikfom.mapping.ikdtree.cube_size)
+                << "|" << std::endl;
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "BB Range: " + std::to_string(this->config.ikfom.mapping.ikdtree.rm_range)
+                << "|" << std::endl;
+            
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "Change Planar Threshold: " + std::to_string(this->config.ikfom.mapping.change_planar_threshold)
+                << "|" << std::endl;
+            
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "Planar Threshold: " + std::to_string(this->config.ikfom.mapping.PLANE_THRESHOLD)
+                << "|" << std::endl;
+            
+
+            std::cout << "|===================================================================|" << std::endl;
 
             if(this->button_trigger){
                 std::cout << "|===================================================================|" << std::endl;
@@ -1364,12 +1548,12 @@
                 }
                 else{
                     std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
-                        << "Current Env: " << "NaN"
+                        << "Current Env: " << std::string("NaN")
                         << "|" << std::endl;
                 }
 
                 std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
-                    << "Global Env: " << this->global_env_state
+                    << "Global Env: " << std::string(this->global_env_state)
                     << "|" << std::endl;
             }
             std::cout << "+-------------------------------------------------------------------+" << std::endl;

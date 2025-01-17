@@ -64,13 +64,26 @@ struct fast_limo::Config{
             int MAX_NUM_PC2MATCH;   // max num of points to match (helps to reduce comp. load)
             double MAX_DIST_PLANE;  // max distance between points to be considered a plane
             double PLANE_THRESHOLD; // threshold to consider an estimated plane is actually a plane (also used for deciding if point belongs to plane )
+            bool change_planar_threshold;
+            double small_room_planar_threshold;
+            double medium_room_planar_threshold;
             bool local_mapping;     // whether to move the map with the robot's pose (fixed size map) or not (increasing size, limitless map) 
+            bool dynamic_mapping;   // FLAG:: whether to change the local mapping based on the leaf size
             struct iKDTree{
                 float delete_param;
                 float balance_param;
                 float voxel_size;
                 double cube_size;
                 double rm_range;
+                bool dynamic_bb;
+                struct small{
+                    double bb_size;
+                    double bb_range;
+                } small;
+                struct medium{
+                    double bb_size;
+                    double bb_range;
+                } medium;
             } ikdtree;
         } mapping;
 
@@ -97,6 +110,7 @@ struct fast_limo::Config{
 
     bool save_dense_pcd;
     bool save_skewed_pcd;
+    std::string data_path;
     // Other
     int sensor_type;        // LiDAR type
     int num_threads;        // num of threads to be used by OpenMP

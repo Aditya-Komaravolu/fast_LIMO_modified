@@ -37,22 +37,22 @@ extrinsics: # w.r.t baselink [SI]
 
 
   lidar:
-    t: [ 0,0,0 ]
-    # # # R: [ 0.774, -0.633, 0.022,
-    # # #     0.633, 0.774,  -0.026,
-    # # #     -0.0005, 0.03,  0.999 ] # +40º
-    # # # R: [ 0.774, 0.633, -0.0005,
-    # # #     -0.633, 0.774,  0.03,
-    # # #     0.022, -0.026,  0.999 ] # -40º
-    R: [ 1.,  0.,  0.,
-          0.,  1.,  0.,
-          0.,  0.,  1. ]
-    # t: [0, 0, -0.06334]
+    # t: [ 0,0,0 ]
+    # # # # R: [ 0.774, -0.633, 0.022,
+    # # # #     0.633, 0.774,  -0.026,
+    # # # #     -0.0005, 0.03,  0.999 ] # +40º
+    # # # # R: [ 0.774, 0.633, -0.0005,
+    # # # #     -0.633, 0.774,  0.03,
+    # # # #     0.022, -0.026,  0.999 ] # -40º
+    # R: [ 1.,  0.,  0.,
+    #       0.,  1.,  0.,
+    #       0.,  0.,  1. ]
+    t: [0, 0, -0.06334]
 
-    # R: [ 
-    #     -0.064531,  -0.703643,   0.707617,
-    #     0.99738, -0.0222415,  0.0688393,
-    #     -0.0326998,   0.710205,   0.703235]
+    R: [ 
+        -0.064531,  -0.703643,   0.707617,
+        0.99738, -0.0222415,  0.0688393,
+        -0.0326998,   0.710205,   0.703235]
 
     # R: [
     #     -0.0801174,  -0.704669,   0.704999,
@@ -96,20 +96,21 @@ filters:
     active: true
     value: 7
 
-
-
-
 iKFoM:  # Iterative Kalman Filter on Manifolds lib
-  MAX_NUM_ITERS: 100                # max num+1 of iterations of the KF (limits comp. load)
+  MAX_NUM_ITERS: 2               # max num+1 of iterations of the KF (limits comp. load)
   MAX_NUM_MATCHES: 40000           # max num of matches to account for when computing Jacobians (limits comp. load)
-  MAX_NUM_PC2MATCH: 20000        # max num of points to consider when matching with map (limits comp. load)
-  LIMITS: 3                 
+  MAX_NUM_PC2MATCH: 35000        # max num of points to consider when matching with map (limits comp. load)
+  LIMITS: 3                
 
   Mapping:
-    NUM_MATCH_POINTS: 10           # num of points that constitute a match
-    MAX_DIST_PLANE: 0.25      # [m] max distance between points of every match
+    NUM_MATCH_POINTS: 5           # num of points that constitute a match
+    MAX_DIST_PLANE: 0.1      # [m] max distance between points of every match
     PLANES_THRESHOLD: 5.0e-2      # [m] threshold to consider if match points are part of a plane 
+    change_planar_threshold: true
+    small_room_planar_threshold: 0.000005
+    medium_room_planar_threshold: 0.000005
     LocalMapping: true            # whether to keep a fixed size map (moving with the robot) or a limitless map (when active, it limits the memory in use)
+    dynamic_mapping: false    # FLAG: changes the LocalMapping to true based on the leafsize
 
   iKDTree: # Incremental KD Tree lib
     balance: 0.6      # tree balancing param
@@ -117,6 +118,13 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
     voxel: 0.1        # downsampling value
     bb_size: 300.0    # [m] Local Map's bounding box dimension
     bb_range: 50.0    # [m] Local Map's bounding box moving range (if the robot is closer than bb_range to any local map edge, the BB will move)
+    dynamic_bb: true  # FLAG: changes the bb_size and bb_range based on the rooms
+    small:
+      bb_size: 50.0
+      bb_range: 10.0
+    medium:
+      bb_size: 50.0
+      bb_range: 10.0
 
   covariance:
     gyro: 0.0001 
@@ -134,4 +142,4 @@ save:
   dense_pcd: true
   skewed_pcd: true           
 
-# scan_path: /home/inkers/27_DEC_CP00000_FL0_OZONE_16_20_19
+scan_path: /home/inkers/27_DEC_CP00000_FL0_OZONE_16_20_19

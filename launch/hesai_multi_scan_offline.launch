@@ -1,0 +1,16 @@
+<launch>
+
+    <arg name="rviz" default="true"/>
+    <arg name="base_path" default=""/>
+    <arg name="config_path" default=""/>
+    <arg name="scan_path" default=""/>
+
+    <node pkg="fast_limo" type="fast_limo_multi_exec" name="fast_limo" output="screen" required="true">
+        <rosparam file="$(arg config_path)" />
+        <param name="base_path" value="$(arg base_path)"/>
+        <param name="scan_path" value="$(arg scan_path)"/>
+    </node>
+
+    <node pkg="rviz" name="rviz_limo" type="rviz" args="-d $(find fast_limo)/config/rviz/limo.rviz" if="$(arg rviz)"/>
+
+</launch>

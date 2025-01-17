@@ -96,9 +96,6 @@ filters:
     active: true
     value: 7
 
-
-
-
 iKFoM:  # Iterative Kalman Filter on Manifolds lib
   MAX_NUM_ITERS: 100                # max num+1 of iterations of the KF (limits comp. load)
   MAX_NUM_MATCHES: 40000           # max num of matches to account for when computing Jacobians (limits comp. load)
