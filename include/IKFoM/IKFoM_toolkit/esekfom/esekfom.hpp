@@ -277,16 +277,16 @@ public:
 
 	// iterated error state EKF propogation
 	void predict(double &dt, processnoisecovariance &Q, const input &i_in){
-		flatted_state f_ = f(x_, i_in);
-		cov_ f_x_ = f_x(x_, i_in);
+		flatted_state f_ = f(x_, i_in); //state prediction
+		cov_ f_x_ = f_x(x_, i_in); //state jacobian
 		cov f_x_final;
 
-		Matrix<scalar_type, m, process_noise_dof> f_w_ = f_w(x_, i_in);
+		Matrix<scalar_type, m, process_noise_dof> f_w_ = f_w(x_, i_in); // noise jacobian
 		Matrix<scalar_type, n, process_noise_dof> f_w_final;
 		state x_before = x_;
-		x_.oplus(f_, dt);
+		x_.oplus(f_, dt); // state update using box plus operation
 
-		F_x1 = cov::Identity();
+		F_x1 = cov::Identity(); // to predict covariance
 		for (std::vector<std::pair<std::pair<int, int>, int> >::iterator it = x_.vect_state.begin(); it != x_.vect_state.end(); it++) {
 			int idx = (*it).first.first;
 			int dim = (*it).first.second;
@@ -1736,6 +1736,11 @@ public:
 			Eigen::EigenSolver<Eigen::Matrix<scalar_type, 6, 6>> es(HTH. template block<6,6>(0,0));
 			Eigen::Matrix<scalar_type, 6, 6> VEPs = es.eigenvectors().real(). template block<6,6>(0,0);
 			Eigen::Matrix<scalar_type, 1, 6> VAPs = es.eigenvalues().real().head(6);
+
+			// IMPROVEMENT:: scope of improvement to add adaptive weight for degenerate case 
+			// In degenerate cases (e.g., corridor)
+			// - Rely more on IMU for degenerate directions
+			// - Use LiDAR for well-constrained directions
 			if (VAPs.prod() < 1e-20) VEPs = Eigen::Matrix<scalar_type, 6, 6>::Identity();
 			Eigen::Matrix<scalar_type, 6, 6> selVEPs = VEPs;
 			for (int vapi = 0; vapi < 6; ++vapi) if (VAPs(vapi) < D) selVEPs. template block<1,6>(vapi,0) *= 0;

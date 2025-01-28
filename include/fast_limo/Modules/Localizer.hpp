@@ -45,6 +45,7 @@ namespace thresholds{
     , ikdtree_bb_size(0.0)
     , ikdtree_bb_range(0.0)
     , planar_threshold(0.0)
+    , max_filter_distance(0.0)
     {
     
     }
@@ -57,6 +58,7 @@ namespace thresholds{
     , ikdtree_bb_size(0.0)
     , ikdtree_bb_range(0.0)
     , planar_threshold(0.0)
+    , max_filter_distance(0.0)
     {
     (void)_alloc;
     }
@@ -81,6 +83,9 @@ namespace thresholds{
 
     typedef double planarThreshold;
     planarThreshold planar_threshold;
+
+    typedef double maxfilterDistance;
+    maxfilterDistance max_filter_distance;
 
     
 
@@ -168,8 +173,8 @@ class fast_limo::Localizer {
         int num_threads_;
 
         // IMU buffer
-        // boost::circular_buffer<IMUmeas> imu_buffer;
-        std::deque<IMUmeas> imu_buffer;
+        boost::circular_buffer<IMUmeas> imu_buffer;
+        // std::deque<IMUmeas> imu_buffer;
 
         // boost::circular_buffer<std::string> env_buffer;
 
@@ -178,14 +183,18 @@ class fast_limo::Localizer {
 
         bool button_trigger;
         std::string global_env_state;
+        double default_max_filter_distance;
+        double default_planar_threshold;
+        double default_bb_size;
+        double default_bb_range;
 
         // std::deque<sensor_msgs::PointCloud2> lidar_buffer;
         // std::deque<sensor_msgs::Imu> imu_buffer;
         // std::deque<std_msgs::String> env_buffer;
 
         // Propagated states buffer
-        // boost::circular_buffer<State> propagated_buffer;
-        std::deque<State> propagated_buffer;
+        boost::circular_buffer<State> propagated_buffer;
+        // std::deque<State> propagated_buffer;
         std::mutex mtx_prop; // mutex for avoiding multiple thread access to the buffer
         std::condition_variable cv_prop_stamp;
 
@@ -209,15 +218,15 @@ class fast_limo::Localizer {
         std::thread debug_thread;
 
             // Buffers
-        // boost::circular_buffer<double> cpu_times;
-        // boost::circular_buffer<double> imu_rates;
-        // boost::circular_buffer<double> lidar_rates;
-        // boost::circular_buffer<double> cpu_percents;
+        boost::circular_buffer<double> cpu_times;
+        boost::circular_buffer<double> imu_rates;
+        boost::circular_buffer<double> lidar_rates;
+        boost::circular_buffer<double> cpu_percents;
 
-        std::deque<double> cpu_times;
-        std::deque<double> imu_rates;
-        std::deque<double> lidar_rates;
-        std::deque<double> cpu_percents;
+        // std::deque<double> cpu_times;
+        // std::deque<double> imu_rates;
+        // std::deque<double> lidar_rates;
+        // std::deque<double> cpu_percents;
 
             // CPU specs
         std::string cpu_type;
@@ -285,19 +294,19 @@ class fast_limo::Localizer {
 
         States integrateImu(double start_time, double end_time, State& state);
 
-        // bool propagatedFromTimeRange(double start_time, double end_time,
-        //                           boost::circular_buffer<State>::reverse_iterator& begin_prop_it,
-        //                           boost::circular_buffer<State>::reverse_iterator& end_prop_it);
-        // bool imuMeasFromTimeRange(double start_time, double end_time,
-        //                           boost::circular_buffer<IMUmeas>::reverse_iterator& begin_imu_it,
-        //                           boost::circular_buffer<IMUmeas>::reverse_iterator& end_imu_it);
-
         bool propagatedFromTimeRange(double start_time, double end_time,
-                                  std::deque<State>::reverse_iterator& begin_prop_it,
-                                  std::deque<State>::reverse_iterator& end_prop_it);
+                                  boost::circular_buffer<State>::reverse_iterator& begin_prop_it,
+                                  boost::circular_buffer<State>::reverse_iterator& end_prop_it);
         bool imuMeasFromTimeRange(double start_time, double end_time,
-                                  std::deque<IMUmeas>::reverse_iterator& begin_imu_it,
-                                  std::deque<IMUmeas>::reverse_iterator& end_imu_it);
+                                  boost::circular_buffer<IMUmeas>::reverse_iterator& begin_imu_it,
+                                  boost::circular_buffer<IMUmeas>::reverse_iterator& end_imu_it);
+
+        // bool propagatedFromTimeRange(double start_time, double end_time,
+        //                           std::deque<State>::reverse_iterator& begin_prop_it,
+        //                           std::deque<State>::reverse_iterator& end_prop_it);
+        // bool imuMeasFromTimeRange(double start_time, double end_time,
+        //                           std::deque<IMUmeas>::reverse_iterator& begin_imu_it,
+        //                           std::deque<IMUmeas>::reverse_iterator& end_imu_it);
         bool isInRange(PointType& p);
 
 

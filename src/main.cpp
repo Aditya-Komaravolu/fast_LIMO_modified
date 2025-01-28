@@ -385,6 +385,8 @@ void load_config(ros::NodeHandle* nh_ptr, fast_limo::Config* config){
 
     nh_ptr->param<std::string>("base_path", base_path, ROOT_DIR);
 
+    config->base_path = base_path;
+
     nh_ptr->param<std::string>("topics/input/lidar", config->topics.lidar,  "/velodyne_points");
     nh_ptr->param<std::string>("topics/input/imu",   config->topics.imu,    "/EL/Sensors/vectornav/IMU");
     nh_ptr->param<std::string>("topics/input/env", config->topics.env_topic,  "/env");
@@ -430,7 +432,7 @@ void load_config(ros::NodeHandle* nh_ptr, fast_limo::Config* config){
     std::cout << "small area leafSize : " << config->filters.small_room_leafSize[0] << endl;
     
     //button trigger
-    nh_ptr->param<bool>("filters/voxelGrid/button_trigger",  config->button_trigger,   true);
+    nh_ptr->param<bool>("filters/voxelGrid/button_trigger",  config->button_trigger,   false);
     std::cout << "button trigger enabled: " <<  config->button_trigger << endl;
 
     nh_ptr->param<bool>("filters/minDistance/active",   config->filters.dist_active,    false);
@@ -444,6 +446,18 @@ void load_config(ros::NodeHandle* nh_ptr, fast_limo::Config* config){
     nh_ptr->param<float>("filters/FoV/value",  fov_deg,                     360.0f);
     config->filters.fov_angle = fov_deg *M_PI/360.0; // half of FoV (bc. is divided by the x-axis)
 
+    nh_ptr->param<bool>("filters/filter_points/active",  config->filters.filter_points.active,  false);
+    nh_ptr->param<float>("filters/filter_points/max_filter_distance",  config->filters.filter_points.max_filter_distance,  100.0f);
+    nh_ptr->param<bool>("filters/filter_points/change_based_on_room",  config->filters.filter_points.change_based_on_room,  false);
+    nh_ptr->param<float>("filters/filter_points/small_room_max_filter_distance",  config->filters.filter_points.small_room_max_filter_distance,  20.0f);
+    nh_ptr->param<float>("filters/filter_points/medium_room_max_filter_distance",  config->filters.filter_points.medium_room_max_filter_distance,  20.0f);
+
+    std::cout << "filter points active: " << config->filters.filter_points.active << std::endl;
+    std::cout << "filter points max distance: " << config->filters.filter_points.max_filter_distance << std::endl;
+    std::cout << "filter points change based on room: " << config->filters.filter_points.change_based_on_room << std::endl;
+    std::cout << "filter points small room max distance: " << config->filters.filter_points.small_room_max_filter_distance << std::endl;
+    std::cout << "filter points medium room max distance: " << config->filters.filter_points.medium_room_max_filter_distance << std::endl;
+
     nh_ptr->param<int>("iKFoM/Mapping/NUM_MATCH_POINTS",    config->ikfom.mapping.NUM_MATCH_POINTS, 5);
     nh_ptr->param<int>("iKFoM/MAX_NUM_MATCHES",             config->ikfom.mapping.MAX_NUM_MATCHES,  2000);
     nh_ptr->param<int>("iKFoM/MAX_NUM_PC2MATCH",            config->ikfom.mapping.MAX_NUM_PC2MATCH, 1.e+4);
@@ -451,7 +465,7 @@ void load_config(ros::NodeHandle* nh_ptr, fast_limo::Config* config){
     nh_ptr->param<double>("iKFoM/Mapping/PLANES_THRESHOLD", config->ikfom.mapping.PLANE_THRESHOLD,  5.e-2);
     nh_ptr->param<bool>("iKFoM/Mapping/LocalMapping",       config->ikfom.mapping.local_mapping,    false);
 
-    nh_ptr->param<bool>("iKFoM/Mapping/change_planar_threshold", config->ikfom.mapping.change_planar_threshold, true);
+    nh_ptr->param<bool>("iKFoM/Mapping/change_planar_threshold", config->ikfom.mapping.change_planar_threshold, false);
     nh_ptr->param<double>("iKFoM/Mapping/small_room_planar_threshold", config->ikfom.mapping.small_room_planar_threshold, 1.0e-2);
     nh_ptr->param<double>("iKFoM/Mapping/medium_room_planar_threshold", config->ikfom.mapping.medium_room_planar_threshold, 5.0e-2);
     nh_ptr->param<bool>("iKFoM/Mapping/dynamic_mapping", config->ikfom.mapping.dynamic_mapping, false);

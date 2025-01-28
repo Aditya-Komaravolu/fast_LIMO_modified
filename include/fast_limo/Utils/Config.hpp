@@ -55,6 +55,13 @@ struct fast_limo::Config{
         bool rate_active;               // time rate filter
         float fov_angle;                // FoV filter
         bool fov_active;                // FoV filter
+        struct FilterPoints{
+            bool active;
+            float max_filter_distance;
+            bool change_based_on_room;
+            float small_room_max_filter_distance;
+            float medium_room_max_filter_distance;
+        } filter_points;
     } filters;
 
     struct iKFoM{
@@ -97,6 +104,7 @@ struct fast_limo::Config{
     } ikfom;
 
     // Flags
+    std::string base_path;
     bool gravity_align;         // whether to estimate gravity vector
     bool calibrate_accel;       // whether to estimate linear accel. bias
     bool calibrate_gyro;        // whether to estimate ang. velocity bias

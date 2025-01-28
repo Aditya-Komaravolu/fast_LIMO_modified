@@ -74,8 +74,8 @@
             this->init_iKFoM();
 
             // Set buffer capacity
-            // this->imu_buffer.set_capacity(1000);
-            // this->propagated_buffer.set_capacity(1000);
+            this->imu_buffer.set_capacity(1000);
+            this->propagated_buffer.set_capacity(1000);
 
             // PCL filters setup
             this->crop_filter.setNegative(true);
@@ -115,6 +115,10 @@
             this->last_timestamp_lidar = -1.0;
             this->last_imu_processed_time = -1.0;
 
+            this->default_max_filter_distance = config.filters.filter_points.max_filter_distance;
+            this->default_planar_threshold = config.ikfom.mapping.PLANE_THRESHOLD;
+            this->default_bb_size = config.ikfom.mapping.ikdtree.cube_size;
+            this->default_bb_range = config.ikfom.mapping.ikdtree.rm_range;
 
             this->scan_finished = false;
 
@@ -139,10 +143,10 @@
 
             if(config.verbose){
                 // set up buffer capacities
-                // this->imu_rates.set_capacity(1000);
-                // this->lidar_rates.set_capacity(1000);
-                // this->cpu_times.set_capacity(1000);
-                // this->cpu_percents.set_capacity(1000);
+                this->imu_rates.set_capacity(1000);
+                this->lidar_rates.set_capacity(1000);
+                this->cpu_times.set_capacity(1000);
+                this->cpu_percents.set_capacity(1000);
             }
         }
 
@@ -297,6 +301,7 @@
                 thres_ptr.ikdtree_bb_range = this->config.ikfom.mapping.ikdtree.small.bb_range;
                 thres_ptr.localmapping = false;
                 thres_ptr.planar_threshold = this->config.ikfom.mapping.small_room_planar_threshold;
+                thres_ptr.max_filter_distance = this->config.filters.filter_points.small_room_max_filter_distance;
                 thresholds::mapping_tweak_values::ConstPtr push_thres = boost::make_shared<thresholds::mapping_tweak_values>(thres_ptr);
                 this->env_buffer.push_back(push_thres);
 
@@ -315,6 +320,7 @@
                 thres_ptr.ikdtree_bb_range = this->config.ikfom.mapping.ikdtree.medium.bb_range;
                 thres_ptr.localmapping = false;
                 thres_ptr.planar_threshold = this->config.ikfom.mapping.medium_room_planar_threshold;
+                thres_ptr.max_filter_distance = this->config.filters.filter_points.medium_room_max_filter_distance;
                 thresholds::mapping_tweak_values::ConstPtr push_thres = boost::make_shared<thresholds::mapping_tweak_values>(thres_ptr);
                 this->env_buffer.push_back(push_thres);
             }
@@ -327,10 +333,11 @@
                 thres_ptr.header.stamp = ros_timestamp;
                 thres_ptr.leafSize = this->config.filters.leafSize;
                 thres_ptr.env = "large";
-                thres_ptr.ikdtree_bb_size = this->config.ikfom.mapping.ikdtree.cube_size;
-                thres_ptr.ikdtree_bb_range = this->config.ikfom.mapping.ikdtree.rm_range;
+                thres_ptr.ikdtree_bb_size = this->default_bb_size;
+                thres_ptr.ikdtree_bb_range = this->default_bb_range;
                 thres_ptr.localmapping = true;
-                thres_ptr.planar_threshold = this->config.ikfom.mapping.PLANE_THRESHOLD;
+                thres_ptr.planar_threshold = this->default_planar_threshold;
+                thres_ptr.max_filter_distance = this->default_max_filter_distance;
                 thresholds::mapping_tweak_values::ConstPtr push_thres = boost::make_shared<thresholds::mapping_tweak_values>(thres_ptr);
 
                 this->env_buffer.push_back(push_thres);
@@ -474,6 +481,7 @@
                     auto bb_size = threshold_values->ikdtree_bb_size;
                     auto bb_range = threshold_values->ikdtree_bb_range;
                     auto planar_threshold = threshold_values->planar_threshold;
+                    auto max_filter_distance = threshold_values->max_filter_distance;
 
                     if (this->global_env_state == "None"){
                         this->global_env_state = env_state;
@@ -506,6 +514,21 @@
                             if (this->config.ikfom.mapping.change_planar_threshold){
                                 this->config.ikfom.mapping.PLANE_THRESHOLD = planar_threshold;
                             }
+
+                            if (this->config.filters.filter_points.change_based_on_room){
+                                this->config.filters.filter_points.max_filter_distance = max_filter_distance;
+                            }
+
+                            // ##### save the state pos into a text file when the env is changed
+                            std::ofstream file(this->config.base_path + "/PCD/state_pos.txt", std::ios::app);
+                            auto state_pos = this->state.p;
+                            file << state_pos[0] << "," << state_pos[1] << "," << state_pos[2] << "," << env_state << std::endl;
+                            file.close();
+
+
+
+                            
+
                             //print in green
                             // std::cout << "\033[1;32mEnvironment CHANGED: " << threshold_values->env << "\033[0m" << std::endl;
                             // std::cout << "\033[1;32mLEAF SIZE set to: ";
@@ -550,7 +573,12 @@
             static int rate_value = this->config.filters.rate_value;
             std::function<bool(boost::range::index_value<PointType&, long>)> filter_f;
             
-            if(this->config.filters.dist_active && this->config.filters.rate_active){
+            if (this->config.filters.filter_points.active){
+                filter_f = [this](boost::range::index_value<PointType&, long> p)
+                    { return (Eigen::Vector3f(p.value().x, p.value().y, p.value().z).norm() < this->config.filters.filter_points.max_filter_distance) &&
+                                this->isInRange(p.value()); };
+            }
+            else if(this->config.filters.dist_active && this->config.filters.rate_active){
                 filter_f = [this](boost::range::index_value<PointType&, long> p)
                     { return (Eigen::Vector3f(p.value().x, p.value().y, p.value().z).norm() > min_dist)
                                 && (p.index()%rate_value == 0) && this->isInRange(p.value()); };
@@ -601,8 +629,12 @@
                 this->mtx_ikfom.lock();
 
                     // Update iKFoM measurements (after prediction)
+                // IMPROVEMENT:: add adaptive weight for degenerate case 
+                // In degenerate cases (e.g., corridor)
+                // - Rely more on IMU for degenerate directions
+                // - Use LiDAR for well-constrained directions
                 double solve_time = 0.0;
-                this->_iKFoM.update_iterated_dyn_share_modified(0.001 /*LiDAR noise*/, 5.0/*Degeneracy threshold*/, 
+                this->_iKFoM.update_iterated_dyn_share_modified(0.001 /*LiDAR noise (make dynamic)*/, 5.0/*Degeneracy threshold*/, 
                                                                 solve_time/*solving time elapsed*/, false/*print degeneracy values flag*/);
                     /*NOTE: update_iterated_dyn_share_modified() will trigger the matching procedure ( see "use-ikfom.cpp" )
                     in order to update the measurement stage of the KF with the computed point-to-plane distances*/
@@ -896,10 +928,10 @@
             Q.block<3, 3>(6, 6) = config.ikfom.cov_bias_gyro * Eigen::Matrix<double, 3, 3>::Identity();
             Q.block<3, 3>(9, 9) = config.ikfom.cov_bias_acc * Eigen::Matrix<double, 3, 3>::Identity();
 
-            // boost::circular_buffer<IMUmeas>::reverse_iterator begin_imu_it;
-            // boost::circular_buffer<IMUmeas>::reverse_iterator end_imu_it;
-            std::deque<IMUmeas>::reverse_iterator begin_imu_it;
-            std::deque<IMUmeas>::reverse_iterator end_imu_it;
+            boost::circular_buffer<IMUmeas>::reverse_iterator begin_imu_it;
+            boost::circular_buffer<IMUmeas>::reverse_iterator end_imu_it;
+            // std::deque<IMUmeas>::reverse_iterator begin_imu_it;
+            // std::deque<IMUmeas>::reverse_iterator end_imu_it;
             if (not this->imuMeasFromTimeRange(t1, t2, begin_imu_it, end_imu_it)) {
                 // not enough IMU measurements, return empty vector
                 std::cout << "FAST_LIMO::propagateImu(): not enough IMU measurements\n";
@@ -1067,10 +1099,34 @@
 
             // copy points into deskewed_scan_ in order of timestamp
             pcl::PointCloud<PointType>::Ptr deskewed_scan_ (boost::make_shared<pcl::PointCloud<PointType>>());
-            deskewed_scan_->points.resize(pc->points.size());
+            // deskewed_scan_->points.resize(pc->points.size());
             
-            std::partial_sort_copy(pc->points.begin(), pc->points.end(),
-                                    deskewed_scan_->points.begin(), deskewed_scan_->points.end(), point_time_cmp);
+            // std::partial_sort_copy(pc->points.begin(), pc->points.end(),
+            //                         deskewed_scan_->points.begin(), deskewed_scan_->points.end(), point_time_cmp);
+
+            pcl::PointCloud<PointType>::Ptr points_limited (boost::make_shared<pcl::PointCloud<PointType>>());
+
+            if(this->config.filters.filter_points.active){
+            //limit points based on the distance
+                for(auto& pt : pc->points){
+                    if(pt.x < this->config.filters.filter_points.max_filter_distance && pt.y < this->config.filters.filter_points.max_filter_distance && pt.z < this->config.filters.filter_points.max_filter_distance) 
+                        points_limited->push_back(pt);
+                }
+                deskewed_scan_->points.resize(points_limited->points.size());
+                //add the limited points to the deskewed scan
+                deskewed_scan_->points = points_limited->points;
+                            
+                std::partial_sort_copy(points_limited->points.begin(), points_limited->points.end(),
+                                        deskewed_scan_->points.begin(), deskewed_scan_->points.end(), point_time_cmp);
+            }
+            else{
+                deskewed_scan_->points.resize(pc->points.size());
+                deskewed_scan_->points = pc->points;
+                            
+                std::partial_sort_copy(pc->points.begin(), pc->points.end(),
+                                        deskewed_scan_->points.begin(), deskewed_scan_->points.end(), point_time_cmp);
+            }
+
 
             if(deskewed_scan_->points.size() < 1){
                 std::cout << "FAST_LIMO::ERROR: failed to sort input pointcloud!\n";
@@ -1139,11 +1195,11 @@
 
             States imu_se3;
 
-            // boost::circular_buffer<State>::reverse_iterator begin_prop_it;
-            // boost::circular_buffer<State>::reverse_iterator end_prop_it;
+            boost::circular_buffer<State>::reverse_iterator begin_prop_it;
+            boost::circular_buffer<State>::reverse_iterator end_prop_it;
 
-            std::deque<State>::reverse_iterator begin_prop_it;
-            std::deque<State>::reverse_iterator end_prop_it;
+            // std::deque<State>::reverse_iterator begin_prop_it;
+            // std::deque<State>::reverse_iterator end_prop_it;
             if (not this->propagatedFromTimeRange(start_time, end_time, begin_prop_it, end_prop_it)) {
                 // not enough IMU measurements, return empty vector
                 std::cout << "FAST_LIMO::propagatedFromTimeRange(): not enough propagated states!\n";
@@ -1161,13 +1217,13 @@
             return fabs(atan2(p.y, p.x)) < this->config.filters.fov_angle;
         }
 
-        // bool Localizer::propagatedFromTimeRange(double start_time, double end_time,
-        //                                         boost::circular_buffer<State>::reverse_iterator& begin_prop_it,
-        //                                         boost::circular_buffer<State>::reverse_iterator& end_prop_it) {
-
         bool Localizer::propagatedFromTimeRange(double start_time, double end_time,
-                                                std::deque<State>::reverse_iterator& begin_prop_it,
-                                                std::deque<State>::reverse_iterator& end_prop_it) {
+                                                boost::circular_buffer<State>::reverse_iterator& begin_prop_it,
+                                                boost::circular_buffer<State>::reverse_iterator& end_prop_it) {
+
+        // bool Localizer::propagatedFromTimeRange(double start_time, double end_time,
+        //                                         std::deque<State>::reverse_iterator& begin_prop_it,
+        //                                         std::deque<State>::reverse_iterator& end_prop_it) {
 
             // std::cout << "propagatedFromTimeRange: " << this->propagated_buffer.size() << std::endl;
             // if (this->propagated_buffer.empty() || this->propagated_buffer.front().time < end_time) {
@@ -1200,23 +1256,23 @@
             prop_it++;
 
             // Set reverse iterators (to iterate forward in time)
-            // end_prop_it = boost::circular_buffer<State>::reverse_iterator(last_prop_it);
-            // begin_prop_it = boost::circular_buffer<State>::reverse_iterator(prop_it);
+            end_prop_it = boost::circular_buffer<State>::reverse_iterator(last_prop_it);
+            begin_prop_it = boost::circular_buffer<State>::reverse_iterator(prop_it);
 
-            end_prop_it = std::deque<State>::reverse_iterator(last_prop_it);
-            begin_prop_it = std::deque<State>::reverse_iterator(prop_it);
+            // end_prop_it = std::deque<State>::reverse_iterator(last_prop_it);
+            // begin_prop_it = std::deque<State>::reverse_iterator(prop_it);
 
 
             return true;
         }
 
-        // bool Localizer::imuMeasFromTimeRange(double start_time, double end_time,
-        //                                         boost::circular_buffer<IMUmeas>::reverse_iterator& begin_imu_it,
-        //                                         boost::circular_buffer<IMUmeas>::reverse_iterator& end_imu_it) {
-
         bool Localizer::imuMeasFromTimeRange(double start_time, double end_time,
-                                                std::deque<IMUmeas>::reverse_iterator& begin_imu_it,
-                                                std::deque<IMUmeas>::reverse_iterator& end_imu_it) {
+                                                boost::circular_buffer<IMUmeas>::reverse_iterator& begin_imu_it,
+                                                boost::circular_buffer<IMUmeas>::reverse_iterator& end_imu_it) {
+
+        // bool Localizer::imuMeasFromTimeRange(double start_time, double end_time,
+        //                                         std::deque<IMUmeas>::reverse_iterator& begin_imu_it,
+        //                                         std::deque<IMUmeas>::reverse_iterator& end_imu_it) {
 
             if (this->imu_buffer.empty() || this->imu_buffer.front().stamp < end_time) {
                 return false;
@@ -1242,11 +1298,11 @@
             imu_it++;
 
             // Set reverse iterators (to iterate forward in time)
-            // end_imu_it = boost::circular_buffer<IMUmeas>::reverse_iterator(last_imu_it);
-            // begin_imu_it = boost::circular_buffer<IMUmeas>::reverse_iterator(imu_it);
+            end_imu_it = boost::circular_buffer<IMUmeas>::reverse_iterator(last_imu_it);
+            begin_imu_it = boost::circular_buffer<IMUmeas>::reverse_iterator(imu_it);
 
-            end_imu_it = std::deque<IMUmeas>::reverse_iterator(last_imu_it);
-            begin_imu_it = std::deque<IMUmeas>::reverse_iterator(imu_it);
+            // end_imu_it = std::deque<IMUmeas>::reverse_iterator(last_imu_it);
+            // begin_imu_it = std::deque<IMUmeas>::reverse_iterator(imu_it);
 
 
             return true;
@@ -1529,6 +1585,14 @@
             
             std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
                 << "Planar Threshold: " + std::to_string(this->config.ikfom.mapping.PLANE_THRESHOLD)
+                << "|" << std::endl;
+
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "Filter points range based on room: " + std::to_string(this->config.filters.filter_points.change_based_on_room)
+                << "|" << std::endl;
+
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "Max Filter Distance: " + std::to_string(this->config.filters.filter_points.max_filter_distance)
                 << "|" << std::endl;
             
 
