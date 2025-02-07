@@ -45,6 +45,12 @@ namespace thresholds{
     , ikdtree_bb_size(0.0)
     , ikdtree_bb_range(0.0)
     , planar_threshold(0.0)
+    , cov_gyro(0.0)
+    , cov_acc(0.0)
+    , cov_bias_gyro(0.0)
+    , cov_bias_acc(0.0)
+    , esekf_degeneracy_threshold(0.0)
+    , esekf_measurement_noise(0.0)
     {
     
     }
@@ -57,6 +63,12 @@ namespace thresholds{
     , ikdtree_bb_size(0.0)
     , ikdtree_bb_range(0.0)
     , planar_threshold(0.0)
+    , cov_gyro(0.0)
+    , cov_acc(0.0)
+    , cov_bias_gyro(0.0)
+    , cov_bias_acc(0.0)
+    , esekf_degeneracy_threshold(0.0)
+    , esekf_measurement_noise(0.0)
     {
     (void)_alloc;
     }
@@ -82,7 +94,23 @@ namespace thresholds{
     typedef double planarThreshold;
     planarThreshold planar_threshold;
 
-    
+    typedef double covGyro;
+    covGyro cov_gyro;
+
+    typedef double covAcc;
+    covAcc cov_acc;
+
+    typedef double covBiasGyro;
+    covBiasGyro cov_bias_gyro;
+
+    typedef double covBiasAcc;
+    covBiasAcc cov_bias_acc;
+
+    typedef double degeneracy_threshold;
+    degeneracy_threshold esekf_degeneracy_threshold;
+
+    typedef double measurement_noise;
+    measurement_noise esekf_measurement_noise;
 
     typedef std::string env_name;
     env_name env;
@@ -116,6 +144,23 @@ class fast_limo::Localizer {
         double last_timestamp_lidar;
         double last_imu_processed_time;
         bool scan_finished;
+
+        std::vector<float> default_leaf_size;
+        double default_bb_size;
+        double default_bb_range;
+        double default_planar_threshold;
+
+        double cov_gyro_default;
+        double cov_acc_default;
+        double cov_bias_gyro_default;
+        double cov_bias_acc_default;
+
+        double esekf_measurement_noise;
+        double esekf_degeneracy_threshold;
+        bool print_degeneracy_values;
+
+        double default_esekf_measurement_noise;
+        double default_esekf_degeneracy_threshold;
         
     private:
         // Iterated Kalman Filter on Manifolds (FASTLIOv2)

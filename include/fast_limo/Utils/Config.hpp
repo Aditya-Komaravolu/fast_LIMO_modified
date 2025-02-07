@@ -62,6 +62,7 @@ struct fast_limo::Config{
             int NUM_MATCH_POINTS;   // num of points that constitute a match
             int MAX_NUM_MATCHES;    // max num of matches (helps to reduce comp. load)
             int MAX_NUM_PC2MATCH;   // max num of points to match (helps to reduce comp. load)
+            int *k_found_matches;   // max num of points found to match (helps to reduce comp. load)
             double MAX_DIST_PLANE;  // max distance between points to be considered a plane
             double PLANE_THRESHOLD; // threshold to consider an estimated plane is actually a plane (also used for deciding if point belongs to plane )
             bool change_planar_threshold;
@@ -94,7 +95,34 @@ struct fast_limo::Config{
         double cov_acc;             // covariance lin. accel.
         double cov_bias_gyro;       // covariance bias ang. vel.
         double cov_bias_acc;        // covariance bias lin. accel.
+        bool change_according_to_env;
+        double small_room_cov_gyro;
+        double small_room_cov_acc;
+        double small_room_cov_bias_gyro;
+        double small_room_cov_bias_acc;
+        double medium_room_cov_gyro;
+        double medium_room_cov_acc;
+        double medium_room_cov_bias_gyro;
+        double medium_room_cov_bias_acc;
     } ikfom;
+
+    struct SelectiveKF{
+        bool active;
+        double measurement_noise;
+        double degeneracy_threshold;
+    } skf;
+
+    struct ESEKFOM{
+        bool active;
+        double measurement_noise;
+        double degeneracy_threshold;
+        bool print_degeneracy_values;
+        bool change_according_to_env;
+        double small_room_measurement_noise;
+        double small_room_degeneracy_threshold;
+        double medium_room_measurement_noise;
+        double medium_room_degeneracy_threshold;
+    } esekf;
 
     // Flags
     bool gravity_align;         // whether to estimate gravity vector
@@ -111,11 +139,11 @@ struct fast_limo::Config{
     bool save_dense_pcd;
     bool save_skewed_pcd;
     std::string data_path;
+    bool offline_mode;
     // Other
     int sensor_type;        // LiDAR type
     int num_threads;        // num of threads to be used by OpenMP
     double imu_calib_time;  // time to be estimating IMU biases
-
 };
 
 #endif

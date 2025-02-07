@@ -37,22 +37,22 @@ extrinsics: # w.r.t baselink [SI]
 
 
   lidar:
-    # t: [ 0,0,0 ]
-    # # # # R: [ 0.774, -0.633, 0.022,
-    # # # #     0.633, 0.774,  -0.026,
-    # # # #     -0.0005, 0.03,  0.999 ] # +40º
-    # # # # R: [ 0.774, 0.633, -0.0005,
-    # # # #     -0.633, 0.774,  0.03,
-    # # # #     0.022, -0.026,  0.999 ] # -40º
-    # R: [ 1.,  0.,  0.,
-    #       0.,  1.,  0.,
-    #       0.,  0.,  1. ]
-    t: [0, 0, -0.06334]
+    t: [ 0,0,0 ]
+    # # # R: [ 0.774, -0.633, 0.022,
+    # # #     0.633, 0.774,  -0.026,
+    # # #     -0.0005, 0.03,  0.999 ] # +40º
+    # # # R: [ 0.774, 0.633, -0.0005,
+    # # #     -0.633, 0.774,  0.03,
+    # # #     0.022, -0.026,  0.999 ] # -40º
+    R: [ 1.,  0.,  0.,
+          0.,  1.,  0.,
+          0.,  0.,  1. ]
+    # t: [0, 0, -0.06334]
 
-    R: [ 
-        -0.064531,  -0.703643,   0.707617,
-        0.99738, -0.0222415,  0.0688393,
-        -0.0326998,   0.710205,   0.703235]
+    # R: [ 
+    #     -0.064531,  -0.703643,   0.707617,
+    #     0.99738, -0.0222415,  0.0688393,
+    #     -0.0326998,   0.710205,   0.703235]
 
     # R: [
     #     -0.0801174,  -0.704669,   0.704999,
@@ -61,13 +61,18 @@ extrinsics: # w.r.t baselink [SI]
 
 intrinsics:
   accel:
-    bias: [4.8066600394948737e-04,1.8591481791391698e-04,2.9535896619327070e-04 ]  # [m/s^2]
-    # bias: [0.01, 0.01, 0.01]  # [m/s^2]
+    #hesai slant device
+    # bias: [4.8066600394948737e-04,1.8591481791391698e-04,2.9535896619327070e-04 ]  # [m/s^2]
+    # TESTING:: flat device intrinsic1
+    bias: [4.7894496416583701e-05, 3.2504601117417932e-06, 6.5696210681980275e-09]
     sm:   [ 1.,  0.,  0.,
             0.,  1.,  0.,
             0.,  0.,  1. ]
   gyro:
-    bias: [  6.1344105209174259e-05, 6.7378670380355060e-05, 4.6391109238830401e-05 ]  # [rad/s]
+    #hesai slant device
+    # bias: [  6.1344105209174259e-05, 6.7378670380355060e-05, 4.6391109238830401e-05 ]  # [rad/s]
+    # TESTING:: flat device intrinsic1
+    bias: [  2.2806361538596478e-06, 1.9243412842385954e-06, 7.0687311654157768e-07 ]  # [rad/s]
     # bias: [  0.01, 0.01, 0.01 ]  # [rad/s]
 
 filters:
@@ -79,7 +84,7 @@ filters:
 
   voxelGrid:
     active: true
-    leafSize: [0.25, 0.25, 0.25]
+    leafSize: [0.2, 0.2, 0.2]
     small_room_leafSize: [0.05, 0.05, 0.05]
     medium_room_leafSize: [0.1, 0.1, 0.1]
     button_trigger: true
@@ -97,16 +102,17 @@ filters:
     value: 7
 
 iKFoM:  # Iterative Kalman Filter on Manifolds lib
-  MAX_NUM_ITERS: 2               # max num+1 of iterations of the KF (limits comp. load)
-  MAX_NUM_MATCHES: 40000           # max num of matches to account for when computing Jacobians (limits comp. load)
-  MAX_NUM_PC2MATCH: 35000        # max num of points to consider when matching with map (limits comp. load)
-  LIMITS: 3                
+  MAX_NUM_ITERS: 100  #less works for outer, more works for inner # max num+1 of iterations of the KF (limits comp. load)
+  MAX_NUM_MATCHES: 10000           # max num of matches to account for when computing Jacobians (limits comp. load)
+  MAX_NUM_PC2MATCH: 5000        # max num of points to consider when matching with map (limits comp. load)
+  LIMITS: 0.001   
+
 
   Mapping:
-    NUM_MATCH_POINTS: 5           # num of points that constitute a match
-    MAX_DIST_PLANE: 0.1      # [m] max distance between points of every match
+    NUM_MATCH_POINTS: 4           # num of points that constitute a match
+    MAX_DIST_PLANE: 1.5      # [m] max distance between points of every match
     PLANES_THRESHOLD: 5.0e-2      # [m] threshold to consider if match points are part of a plane 
-    change_planar_threshold: true
+    change_planar_threshold: false
     small_room_planar_threshold: 0.000005
     medium_room_planar_threshold: 0.000005
     LocalMapping: true            # whether to keep a fixed size map (moving with the robot) or a limitless map (when active, it limits the memory in use)
@@ -118,7 +124,7 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
     voxel: 0.1        # downsampling value
     bb_size: 300.0    # [m] Local Map's bounding box dimension
     bb_range: 50.0    # [m] Local Map's bounding box moving range (if the robot is closer than bb_range to any local map edge, the BB will move)
-    dynamic_bb: true  # FLAG: changes the bb_size and bb_range based on the rooms
+    dynamic_bb: false  # FLAG: changes the bb_size and bb_range based on the rooms
     small:
       bb_size: 50.0
       bb_range: 10.0
@@ -126,20 +132,77 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
       bb_size: 50.0
       bb_range: 10.0
 
+  # covariance: (kind of working in large rooms)
+  #   gyro: 0.0001 
+  #   accel: 0.01
+  #   bias_gyro: 0.000001
+  #   bias_accel: 0.0001
+
+  # change these only
+  # covariance:
+  #   gyro: 2.4e-2
+  #   accel: 1.8e-2
+  #   bias_gyro: 1.9e-2
+  #   bias_accel: 9.6e-2
+
+  # exp (dont change these) (kinf of working in small rooms)
+  # covariance:
+  #   gyro: 0.0001
+  #   accel: 0.01
+  #   bias_gyro: 0.01
+  #   bias_accel: 0.00001
+
+
+  # change according to env
   covariance:
+    change_according_to_env: false
     gyro: 0.0001 
     accel: 0.01
     bias_gyro: 0.000001
     bias_accel: 0.0001
+    # gyro: 0.0002 
+    # accel: 0.01
+    # bias_gyro: 0.000001
+    # bias_accel: 0.0001
+    small_room_covariance:
+      gyro: 0.0002 
+      accel: 0.01
+      bias_gyro: 0.00001
+      bias_accel: 0.0001
+    medium_room_covariance:
+      gyro: 0.0002 
+      accel: 0.01
+      bias_gyro: 0.00001
+      bias_accel: 0.0001
 
-  # covariance:
-  #   gyro: 0.25
-  #   accel: 0.5
-  #   bias_gyro: 0.000266
-  #   bias_accel: 0.0043
+  skf:
+    active: true
+    measurement_noise: 0.001
+    degeneracy_threshold: 5.0
+
+  esekf:
+    active: false
+    # double R = 0.01;   // Small R: Trust LiDAR measurements more
+    # double R = 1.0;    // Medium R: Balanced trust
+    # double R = 100.0;  // Large R: Trust LiDAR measurements less
+    # double D = 0.01;   // Low threshold: Strict degeneracy detection
+    # double D = 0.1;    // Medium threshold
+    # double D = 1.0;    // High threshold: More permissive
+    change_according_to_env: false
+    print_degeneracy_values: false
+    default:
+      measurement_noise: 0.001
+      degeneracy_threshold: 5.0
+    small_room:
+      measurement_noise: 0.1 
+      degeneracy_threshold: 0.01
+    medium_room:
+      measurement_noise: 0.01
+      degeneracy_threshold: 1.0
 
 save:
   dense_pcd: true
   skewed_pcd: true           
 
-scan_path: /home/inkers/27_DEC_CP00000_FL0_OZONE_16_20_19
+offline_mode: true
+scan_path: /media/inkers/Disk_2TB_SSD/01_FEB_CP00000_FL10_OZONE_14_44_53/inner_last

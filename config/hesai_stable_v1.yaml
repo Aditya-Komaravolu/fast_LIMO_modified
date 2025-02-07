@@ -37,37 +37,41 @@ extrinsics: # w.r.t baselink [SI]
 
 
   lidar:
-    # t: [ 0,0,0 ]
-    # # # # R: [ 0.774, -0.633, 0.022,
-    # # # #     0.633, 0.774,  -0.026,
-    # # # #     -0.0005, 0.03,  0.999 ] # +40º
-    # # # # R: [ 0.774, 0.633, -0.0005,
-    # # # #     -0.633, 0.774,  0.03,
-    # # # #     0.022, -0.026,  0.999 ] # -40º
-    # R: [ 1.,  0.,  0.,
-    #       0.,  1.,  0.,
-    #       0.,  0.,  1. ]
-    t: [0, 0, -0.06334]
+    t: [ 0,0,0 ]
+    # # # R: [ 0.774, -0.633, 0.022,
+    # # #     0.633, 0.774,  -0.026,
+    # # #     -0.0005, 0.03,  0.999 ] # +40º
+    # # # R: [ 0.774, 0.633, -0.0005,
+    # # #     -0.633, 0.774,  0.03,
+    # # #     0.022, -0.026,  0.999 ] # -40º
+    R: [ 1.,  0.,  0.,
+          0.,  1.,  0.,
+          0.,  0.,  1. ]
+    # t: [0, 0, -0.06334]
 
-    R: [ 
-        -0.064531,  -0.703643,   0.707617,
-        0.99738, -0.0222415,  0.0688393,
-        -0.0326998,   0.710205,   0.703235]
+    # R: [ 
+    #     -0.064531,  -0.703643,   0.707617,
+    #     0.99738, -0.0222415,  0.0688393,
+    #     -0.0326998,   0.710205,   0.703235]
 
     # R: [
     #     -0.0801174,  -0.704669,   0.704999,
     #     0.995952, -0.0276707,  0.0855242,
     #     -0.0407584,   0.708997,   0.704033]
 
+
 intrinsics:
   accel:
     bias: [4.8066600394948737e-04,1.8591481791391698e-04,2.9535896619327070e-04 ]  # [m/s^2]
+    # bias: [  4.5127353440833246e-06,6.8559573760979404e-06,1.1657784230941683e-08]  # [m/s^2]    
     # bias: [0.01, 0.01, 0.01]  # [m/s^2]
     sm:   [ 1.,  0.,  0.,
             0.,  1.,  0.,
             0.,  0.,  1. ]
   gyro:
     bias: [  6.1344105209174259e-05, 6.7378670380355060e-05, 4.6391109238830401e-05 ]  # [rad/s]
+    # bias: [  3.9405137223029604e-05, 8.6487662068979359e-06, 3.2573932378529304e-05]  # [rad/s]
+
     # bias: [  0.01, 0.01, 0.01 ]  # [rad/s]
 
 filters:
@@ -79,10 +83,10 @@ filters:
 
   voxelGrid:
     active: true
-    leafSize: [0.25, 0.25, 0.25]
+    leafSize: [0.05,0.05,0.05]
     small_room_leafSize: [0.05, 0.05, 0.05]
-    medium_room_leafSize: [0.1, 0.1, 0.1]
-    button_trigger: true
+    medium_room_leafSize: [0.08, 0.08, 0.08]
+    button_trigger: false
 
   minDistance: # sphere crop
     active: true
@@ -97,16 +101,30 @@ filters:
     value: 7
 
 iKFoM:  # Iterative Kalman Filter on Manifolds lib
+  # stable
   MAX_NUM_ITERS: 100                # max num+1 of iterations of the KF (limits comp. load)
   MAX_NUM_MATCHES: 40000           # max num of matches to account for when computing Jacobians (limits comp. load)
   MAX_NUM_PC2MATCH: 20000        # max num of points to consider when matching with map (limits comp. load)
-  LIMITS: 3                 
+  LIMITS: 3       
+
+  # orig
+  # MAX_NUM_ITERS: 2                # max num+1 of iterations of the KF (limits comp. load)
+  # MAX_NUM_MATCHES: 5000           # max num of matches to account for when computing Jacobians (limits comp. load)
+  # MAX_NUM_PC2MATCH: 1.e+4         # max num of points to consider when matching with map (limits comp. load)
+  # LIMITS: 0.001           
 
   Mapping:
-    NUM_MATCH_POINTS: 10           # num of points that constitute a match
-    MAX_DIST_PLANE: 0.25      # [m] max distance between points of every match
-    PLANES_THRESHOLD: 5.0e-2      # [m] threshold to consider if match points are part of a plane 
-    LocalMapping: true            # whether to keep a fixed size map (moving with the robot) or a limitless map (when active, it limits the memory in use)
+   #stable
+   NUM_MATCH_POINTS: 10           # num of points that constitute a match
+   MAX_DIST_PLANE: 0.25      # [m] max distance between points of every match
+   PLANES_THRESHOLD: 5.0e-2     # [m] threshold to consider if match points are part of a plane 
+   LocalMapping: true            # whether to keep a fixed size map (moving with the robot) or a limitless map (when active, it limits the memory in use)
+
+    
+    # NUM_MATCH_POINTS: 5          # num of points that constitute a match
+    # MAX_DIST_PLANE: 2.0      # [m] max distance between points of every match
+    # PLANES_THRESHOLD: 2.5e-2      # [m] threshold to consider if match points are part of a plane 
+    # LocalMapping: true            # whether to keep a fixed size map (moving with the robot) or a limitless map (when active, it limits the memory in use)
 
   iKDTree: # Incremental KD Tree lib
     balance: 0.6      # tree balancing param
@@ -121,6 +139,9 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
     bias_gyro: 0.000001
     bias_accel: 0.0001
 
+  esekf:
+    active: true
+
   # covariance:
   #   gyro: 0.25
   #   accel: 0.5
@@ -131,4 +152,7 @@ save:
   dense_pcd: true
   skewed_pcd: true           
 
-scan_path: /home/inkers/27_DEC_CP00000_FL0_OZONE_16_20_19
+
+offline_mode: true
+scan_path: "/media/inkers/Extreme SSD/05_FEB_UKN_BRUNTON_HESSAI_SLANT/05_FEB_CP00000_FL4_UKN_BRUNTON_15_20_26"
+# scan_path: /media/inkers/Disk_2TB_SSD/29_JAN_CP00000_FL6_ETV_HOTEL_R1_15_23_04

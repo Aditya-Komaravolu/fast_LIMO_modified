@@ -32,6 +32,7 @@
 
             this->config.ikdtree.cube_size = 300.0;
             this->config.ikdtree.rm_range  = 200.0;
+            this->config.k_found_matches   = 0;
         }
 
         void Mapper::set_num_threads(int n){
@@ -140,6 +141,7 @@
             // Find k nearest points
             MapPoints near_points;
             std::vector<float> pointSearchSqDis(this->config.NUM_MATCH_POINTS);
+            // this->map->Nearest_Search(MapPoint(p(0), p(1), p(2)), this->config.NUM_MATCH_POINTS, near_points, pointSearchSqDis, this->config.k_found_matches);
             this->map->Nearest_Search(MapPoint(p(0), p(1), p(2)), this->config.NUM_MATCH_POINTS, near_points, pointSearchSqDis);
 
             // Construct a plane fitting between them

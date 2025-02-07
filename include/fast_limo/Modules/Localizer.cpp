@@ -122,6 +122,27 @@
 
             this->global_env_state = "None";
 
+            this->default_leaf_size = config.filters.leafSize;
+            this->default_bb_size = config.ikfom.mapping.ikdtree.cube_size;
+            this->default_bb_range = config.ikfom.mapping.ikdtree.rm_range;
+            this->default_planar_threshold = config.ikfom.mapping.PLANE_THRESHOLD;
+
+
+
+            this->cov_gyro_default = config.ikfom.cov_gyro;
+            this->cov_acc_default = config.ikfom.cov_acc;
+            this->cov_bias_gyro_default = config.ikfom.cov_bias_gyro;
+            this->cov_bias_acc_default = config.ikfom.cov_bias_acc;
+
+
+            this->esekf_measurement_noise = config.esekf.measurement_noise;
+            this->esekf_degeneracy_threshold = config.esekf.degeneracy_threshold;
+            this->print_degeneracy_values = config.esekf.print_degeneracy_values;
+
+            
+            this->default_esekf_measurement_noise = config.esekf.measurement_noise;
+            this->default_esekf_degeneracy_threshold = config.esekf.degeneracy_threshold;  
+
             // Avoid unnecessary warnings from PCL
             pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
 
@@ -297,6 +318,12 @@
                 thres_ptr.ikdtree_bb_range = this->config.ikfom.mapping.ikdtree.small.bb_range;
                 thres_ptr.localmapping = false;
                 thres_ptr.planar_threshold = this->config.ikfom.mapping.small_room_planar_threshold;
+                thres_ptr.cov_gyro = this->config.ikfom.small_room_cov_gyro;
+                thres_ptr.cov_acc = this->config.ikfom.small_room_cov_acc;
+                thres_ptr.cov_bias_gyro = this->config.ikfom.small_room_cov_bias_gyro;
+                thres_ptr.cov_bias_acc = this->config.ikfom.small_room_cov_bias_acc;
+                thres_ptr.esekf_measurement_noise = this->config.esekf.small_room_measurement_noise;
+                thres_ptr.esekf_degeneracy_threshold = this->config.esekf.small_room_degeneracy_threshold;
                 thresholds::mapping_tweak_values::ConstPtr push_thres = boost::make_shared<thresholds::mapping_tweak_values>(thres_ptr);
                 this->env_buffer.push_back(push_thres);
 
@@ -315,6 +342,12 @@
                 thres_ptr.ikdtree_bb_range = this->config.ikfom.mapping.ikdtree.medium.bb_range;
                 thres_ptr.localmapping = false;
                 thres_ptr.planar_threshold = this->config.ikfom.mapping.medium_room_planar_threshold;
+                thres_ptr.cov_gyro = this->config.ikfom.medium_room_cov_gyro;
+                thres_ptr.cov_acc = this->config.ikfom.medium_room_cov_acc;
+                thres_ptr.cov_bias_gyro = this->config.ikfom.medium_room_cov_bias_gyro;
+                thres_ptr.cov_bias_acc = this->config.ikfom.medium_room_cov_bias_acc;
+                thres_ptr.esekf_measurement_noise = this->config.esekf.medium_room_measurement_noise;
+                thres_ptr.esekf_degeneracy_threshold = this->config.esekf.medium_room_degeneracy_threshold;
                 thresholds::mapping_tweak_values::ConstPtr push_thres = boost::make_shared<thresholds::mapping_tweak_values>(thres_ptr);
                 this->env_buffer.push_back(push_thres);
             }
@@ -325,12 +358,18 @@
                 }
                 std::cout << std::endl;
                 thres_ptr.header.stamp = ros_timestamp;
-                thres_ptr.leafSize = this->config.filters.leafSize;
+                thres_ptr.leafSize = this->default_leaf_size;
                 thres_ptr.env = "large";
-                thres_ptr.ikdtree_bb_size = this->config.ikfom.mapping.ikdtree.cube_size;
-                thres_ptr.ikdtree_bb_range = this->config.ikfom.mapping.ikdtree.rm_range;
+                thres_ptr.ikdtree_bb_size = this->default_bb_size;
+                thres_ptr.ikdtree_bb_range = this->default_bb_range;
                 thres_ptr.localmapping = true;
-                thres_ptr.planar_threshold = this->config.ikfom.mapping.PLANE_THRESHOLD;
+                thres_ptr.planar_threshold = this->default_planar_threshold;
+                thres_ptr.cov_gyro = this->cov_gyro_default;
+                thres_ptr.cov_acc = this->cov_acc_default;
+                thres_ptr.cov_bias_gyro = this->cov_bias_gyro_default;
+                thres_ptr.cov_bias_acc = this->cov_bias_acc_default;
+                thres_ptr.esekf_measurement_noise = this->default_esekf_measurement_noise;
+                thres_ptr.esekf_degeneracy_threshold = this->default_esekf_degeneracy_threshold;
                 thresholds::mapping_tweak_values::ConstPtr push_thres = boost::make_shared<thresholds::mapping_tweak_values>(thres_ptr);
 
                 this->env_buffer.push_back(push_thres);
@@ -454,7 +493,7 @@
                     std::cout << stream.str() << std::endl;
                 }
                 this->sync_status = false;
-                this->scan_finished = true;
+                this->scan_finished = true; 
                 return;
             }   
 
@@ -474,6 +513,13 @@
                     auto bb_size = threshold_values->ikdtree_bb_size;
                     auto bb_range = threshold_values->ikdtree_bb_range;
                     auto planar_threshold = threshold_values->planar_threshold;
+                    auto cov_gyro = threshold_values->cov_gyro;
+                    auto cov_acc = threshold_values->cov_acc;
+                    auto cov_bias_gyro = threshold_values->cov_bias_gyro;
+                    auto cov_bias_acc = threshold_values->cov_bias_acc;
+                    auto esekf_measurement_noise = threshold_values->esekf_measurement_noise;
+                    auto esekf_degeneracy_threshold = threshold_values->esekf_degeneracy_threshold;
+                    
 
                     if (this->global_env_state == "None"){
                         this->global_env_state = env_state;
@@ -506,27 +552,18 @@
                             if (this->config.ikfom.mapping.change_planar_threshold){
                                 this->config.ikfom.mapping.PLANE_THRESHOLD = planar_threshold;
                             }
-                            //print in green
-                            // std::cout << "\033[1;32mEnvironment CHANGED: " << threshold_values->env << "\033[0m" << std::endl;
-                            // std::cout << "\033[1;32mLEAF SIZE set to: ";
-                            // for (float size : leafsize) {
-                            //     std::cout << size << " ";
-                            // }
-                            // std::cout << "\033[0m" << std::endl;
 
+                            if (this->config.ikfom.change_according_to_env){
+                                this->config.ikfom.cov_gyro = cov_gyro;
+                                this->config.ikfom.cov_acc = cov_acc;
+                                this->config.ikfom.cov_bias_gyro = cov_bias_gyro;
+                                this->config.ikfom.cov_bias_acc = cov_bias_acc;
+                            }
 
-                            // if (save_odometry_last_state){
-
-                            //     save_last_odom_state();
-
-                            //     save_pointcloud_until_last_state();
-                            // }
-                            // mtx_buffer.unlock();
-                            // sig_buffer.notify_all();
-                        }
-                        else{
-                            //env not changed //print in red
-                            // std::cout << "\033[1;31mEnvironment NOT CHANGED: " << threshold_values->env << "\033[0m" << std::endl;
+                            if (this->config.esekf.change_according_to_env){
+                                this->esekf_measurement_noise = esekf_measurement_noise;
+                                this->esekf_degeneracy_threshold = esekf_degeneracy_threshold;
+                            }
                         }
                     }
                     env_buffer.pop_front();
@@ -602,8 +639,25 @@
 
                     // Update iKFoM measurements (after prediction)
                 double solve_time = 0.0;
-                this->_iKFoM.update_iterated_dyn_share_modified(0.001 /*LiDAR noise*/, 5.0/*Degeneracy threshold*/, 
-                                                                solve_time/*solving time elapsed*/, false/*print degeneracy values flag*/);
+                // this->_iKFoM.update_iterated_dyn_share_modified(0.001 /*LiDAR noise*/, 5.0/*Degeneracy threshold*/, 
+                //                                                 solve_time/*solving time elapsed*/, false/*print degeneracy values flag*/);
+                //button trigger
+                if (this->config.esekf.active){
+                    if (this->config.esekf.change_according_to_env){
+                        this->_iKFoM.update_iterated_dyn_share_modified(this->esekf_measurement_noise /*LiDAR noise*/, this->esekf_degeneracy_threshold /*Degeneracy threshold*/, 
+                                                                        solve_time/*solving time elapsed*/, this->config.esekf.print_degeneracy_values /*print degeneracy values flag*/);
+                    }
+                    else{
+                        this->_iKFoM.update_iterated_dyn_share_modified(this->config.esekf.measurement_noise /*LiDAR noise*/, this->config.esekf.degeneracy_threshold /*Degeneracy threshold*/, 
+                                                                    solve_time/*solving time elapsed*/, this->config.esekf.print_degeneracy_values /*print degeneracy values flag*/);
+
+                    }
+                } 
+                else{
+                    this->_iKFoM.update_iterated_dyn_share_modified_selective(this->config.esekf.measurement_noise /*LiDAR noise*/, this->config.esekf.degeneracy_threshold /*Degeneracy threshold*/, 
+                                                                                        solve_time/*solving time elapsed*/, this->config.esekf.print_degeneracy_values /*print degeneracy values flag*/);
+                    
+                }
                     /*NOTE: update_iterated_dyn_share_modified() will trigger the matching procedure ( see "use-ikfom.cpp" )
                     in order to update the measurement stage of the KF with the computed point-to-plane distances*/
                 
@@ -1530,16 +1584,53 @@
             std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
                 << "Planar Threshold: " + std::to_string(this->config.ikfom.mapping.PLANE_THRESHOLD)
                 << "|" << std::endl;
-            
+            // std::cout << "|===================================================================|" << std::endl;
+
+            // std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+            //     << "Found Matches: " + std::to_string(*this->config.ikfom.mapping.k_found_matches)
+            //     << "|" << std::endl;
+            // std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+            //     << "Required Matches: " + std::to_string(this->config.ikfom.mapping.NUM_MATCH_POINTS)
+            //     << "|" << std::endl;
 
             std::cout << "|===================================================================|" << std::endl;
+
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "gyro cov: " + std::to_string(this->config.ikfom.cov_gyro)
+                << "|" << std::endl;
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "acc cov: " + std::to_string(this->config.ikfom.cov_acc)
+                << "|" << std::endl;
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "bias gyro cov: " + std::to_string(this->config.ikfom.cov_bias_gyro)
+                << "|" << std::endl;
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "bias acc cov: " + std::to_string(this->config.ikfom.cov_bias_acc)
+                << "|" << std::endl;
+
+            std::cout << "|===================================================================|" << std::endl;
+
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "ESEKF Parameters " 
+                << "|" << std::endl;
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "Change according to env: " + std::to_string(this->config.esekf.change_according_to_env)
+                << "|" << std::endl;
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "Measurement noise: " + std::to_string(this->esekf_measurement_noise)
+                << "|" << std::endl;
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "Degeneracy threshold: " + std::to_string(this->esekf_degeneracy_threshold)
+                << "|" << std::endl;
 
             if(this->button_trigger){
                 std::cout << "|===================================================================|" << std::endl;
 
+                auto leaf_size = this->voxel_filter.getLeafSize();
+
                 std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
-                    << "Leaf Size: " + std::to_string(this->config.filters.leafSize[0]) + " " + std::to_string(this->config.filters.leafSize[1]) + " " + std::to_string(this->config.filters.leafSize[2])
-                    << "|" << std::endl;
+                        << "Leaf Size: " + std::to_string(leaf_size[0]) + " " + std::to_string(leaf_size[1]) + " " + std::to_string(leaf_size[2])
+                        << "|" << std::endl;
                 
                 if(!this->env_buffer.empty()){
                     std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)

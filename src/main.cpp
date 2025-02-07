@@ -451,7 +451,7 @@ void load_config(ros::NodeHandle* nh_ptr, fast_limo::Config* config){
     nh_ptr->param<double>("iKFoM/Mapping/PLANES_THRESHOLD", config->ikfom.mapping.PLANE_THRESHOLD,  5.e-2);
     nh_ptr->param<bool>("iKFoM/Mapping/LocalMapping",       config->ikfom.mapping.local_mapping,    false);
 
-    nh_ptr->param<bool>("iKFoM/Mapping/change_planar_threshold", config->ikfom.mapping.change_planar_threshold, true);
+    nh_ptr->param<bool>("iKFoM/Mapping/change_planar_threshold", config->ikfom.mapping.change_planar_threshold, false);
     nh_ptr->param<double>("iKFoM/Mapping/small_room_planar_threshold", config->ikfom.mapping.small_room_planar_threshold, 1.0e-2);
     nh_ptr->param<double>("iKFoM/Mapping/medium_room_planar_threshold", config->ikfom.mapping.medium_room_planar_threshold, 5.0e-2);
     nh_ptr->param<bool>("iKFoM/Mapping/dynamic_mapping", config->ikfom.mapping.dynamic_mapping, false);
@@ -476,8 +476,37 @@ void load_config(ros::NodeHandle* nh_ptr, fast_limo::Config* config){
     nh_ptr->param<double>("iKFoM/covariance/bias_gyro",  config->ikfom.cov_bias_gyro,   1.e-5);
     nh_ptr->param<double>("iKFoM/covariance/bias_accel", config->ikfom.cov_bias_acc,    3.e-4);
 
+    nh_ptr->param<bool>("iKFoM/covariance/change_according_to_env", config->ikfom.change_according_to_env, false);
+    nh_ptr->param<double>("iKFoM/covariance/small_room_covariance/gyro", config->ikfom.small_room_cov_gyro, 0.0001);
+    nh_ptr->param<double>("iKFoM/covariance/small_room_covariance/accel", config->ikfom.small_room_cov_acc, 0.01);
+    nh_ptr->param<double>("iKFoM/covariance/small_room_covariance/bias_gyro", config->ikfom.small_room_cov_bias_gyro, 0.000001);
+    nh_ptr->param<double>("iKFoM/covariance/small_room_covariance/bias_accel", config->ikfom.small_room_cov_bias_acc, 0.0001);
+
+    nh_ptr->param<double>("iKFoM/covariance/medium_room_covariance/gyro", config->ikfom.medium_room_cov_gyro, 0.0001);
+    nh_ptr->param<double>("iKFoM/covariance/medium_room_covariance/accel", config->ikfom.medium_room_cov_acc, 0.01);
+    nh_ptr->param<double>("iKFoM/covariance/medium_room_covariance/bias_gyro", config->ikfom.medium_room_cov_bias_gyro, 0.000001);
+    nh_ptr->param<double>("iKFoM/covariance/medium_room_covariance/bias_accel", config->ikfom.medium_room_cov_bias_acc, 0.0001);
+
+    nh_ptr->param<bool>("iKFoM/esekf/active", config->esekf.active, true);
+    nh_ptr->param<bool>("iKFoM/esekf/change_according_to_env", config->esekf.change_according_to_env, false);
+    nh_ptr->param<double>("iKFoM/esekf/default/measurement_noise", config->esekf.measurement_noise, 0.0001);  
+    nh_ptr->param<double>("iKFoM/esekf/default/degeneracy_threshold", config->esekf.degeneracy_threshold, 0.0001);  
+    nh_ptr->param<double>("iKFoM/esekf/small_room/measurement_noise", config->esekf.small_room_measurement_noise, 0.0001);  
+    nh_ptr->param<double>("iKFoM/esekf/small_room/degeneracy_threshold", config->esekf.small_room_degeneracy_threshold, 0.0001);  
+    nh_ptr->param<double>("iKFoM/esekf/medium_room/measurement_noise", config->esekf.medium_room_measurement_noise, 0.0001);  
+    nh_ptr->param<double>("iKFoM/esekf/medium_room/degeneracy_threshold", config->esekf.medium_room_degeneracy_threshold, 0.0001); 
+    nh_ptr->param<bool>("iKFoM/esekf/print_degeneracy_values", config->esekf.print_degeneracy_values, false);
+
+
+    nh_ptr->param<bool>("iKFoM/skf/active", config->skf.active, false);
+    nh_ptr->param<double>("iKFoM/skf/measurement_noise", config->skf.measurement_noise, 0.0001);
+    nh_ptr->param<double>("iKFoM/skf/degeneracy_threshold", config->skf.degeneracy_threshold, 0.0001);
+
+
     nh_ptr->param<bool>("save/dense_pcd", config->save_dense_pcd, false);
     nh_ptr->param<bool>("save/skewed_pcd", config->save_skewed_pcd, false);
+
+    nh_ptr->param<bool>("offline_mode", config->offline_mode, false);
 
     nh_ptr->param<std::string>("scan_path", config->data_path, "");
 
@@ -513,10 +542,7 @@ int main(int argc, char** argv) {
     nh.param<std::string>("frames/world", world_frame, "map");
     nh.param<std::string>("frames/body", body_frame, "base_link");
 
-    // Define subscribers & publishers
-    // ros::Subscriber lidar_sub = nh.subscribe(config.topics.lidar, 1, &lidar_callback, ros::TransportHints().tcpNoDelay());
-    // ros::Subscriber imu_sub   = nh.subscribe(config.topics.imu, 1000, &imu_callback, ros::TransportHints().tcpNoDelay());
-    // ros::Subscriber env_sub   = nh.subscribe(config.topics.env_topic, 1000, &env_callback, ros::TransportHints().tcpNoDelay());
+
     // Define services
     ros::ServiceServer set_leaf_size_service = nh.advertiseService("set_leaf_size", set_leaf_size_callback);
 
@@ -541,156 +567,171 @@ int main(int argc, char** argv) {
         return EXIT_SUCCESS;
     }
 
-    std::vector<std::string> topics_;
-    topics_.push_back(config.topics.lidar);
-    topics_.push_back(config.topics.imu);
-    topics_.push_back(config.topics.env_topic);
+    if (config.offline_mode){
+
+        std::vector<std::string> topics_;
+        topics_.push_back(config.topics.lidar);
+        topics_.push_back(config.topics.imu);
+        topics_.push_back(config.topics.env_topic);
 
 
-    rosbag::TopicQuery topics(topics_);
+        rosbag::TopicQuery topics(topics_);
 
-    std::vector<std::shared_ptr<rosbag::Bag>> bags;
+        std::vector<std::shared_ptr<rosbag::Bag>> bags;
 
-    if (boost::filesystem::exists(config.data_path) && boost::filesystem::is_directory(config.data_path)) {
-        std::vector<boost::filesystem::path> bag_files;
+        if (boost::filesystem::exists(config.data_path) && boost::filesystem::is_directory(config.data_path)) {
+            std::vector<boost::filesystem::path> bag_files;
 
-        // Collect all bag files
-        for (const auto& file : boost::filesystem::directory_iterator(config.data_path)) {
-            if (file.path().extension() == ".bag") {
-                bag_files.push_back(file.path());
+            // Collect all bag files
+            for (const auto& file : boost::filesystem::directory_iterator(config.data_path)) {
+                if (file.path().extension() == ".bag") {
+                    bag_files.push_back(file.path());
+                }
             }
+
+            // Sort the files alphabetically
+            std::sort(bag_files.begin(), bag_files.end());
+
+            // Open the bags in sorted order
+            for (const auto& file_path : bag_files) {
+                std::cout << "Reading bag " << file_path.string() << std::endl;
+                std::shared_ptr<rosbag::Bag> bag = std::make_shared<rosbag::Bag>();
+                bag->open(file_path.string());
+                bags.push_back(bag);
+            }
+        } else {
+            ROS_ERROR("data path does not exist or is not a directory");
+            ros::shutdown();
+            return EXIT_SUCCESS;
         }
 
-        // Sort the files alphabetically
-        std::sort(bag_files.begin(), bag_files.end());
+        std::cout << "read " << bags.size() << " bags" << std::endl;
 
-        // Open the bags in sorted order
-        for (const auto& file_path : bag_files) {
-            std::cout << "Reading bag " << file_path.string() << std::endl;
-            std::shared_ptr<rosbag::Bag> bag = std::make_shared<rosbag::Bag>();
-            bag->open(file_path.string());
-            bags.push_back(bag);
+        rosbag::View full_view;
+        BOOST_FOREACH (std::shared_ptr<rosbag::Bag> bag, bags) {
+            full_view.addQuery(*bag);
         }
-    } else {
-        ROS_ERROR("data path does not exist or is not a directory");
-        ros::shutdown();
-        return EXIT_SUCCESS;
-    }
+        // for (const auto& bag : bags) {
+        //     full_view.addQuery(*bag);
+        // }
 
-    std::cout << "read " << bags.size() << " bags" << std::endl;
+        ros::Time initial_time = full_view.getBeginTime();
 
-    rosbag::View full_view;
-    BOOST_FOREACH (std::shared_ptr<rosbag::Bag> bag, bags) {
-        full_view.addQuery(*bag);
-    }
-    // for (const auto& bag : bags) {
-    //     full_view.addQuery(*bag);
-    // }
+        std::cout << "initial_time: " << initial_time.toSec() << std::endl;
 
-    ros::Time initial_time = full_view.getBeginTime();
+        rosbag::View view;
+        BOOST_FOREACH (std::shared_ptr<rosbag::Bag> bag, bags) {
+            view.addQuery(*bag, topics, initial_time, ros::TIME_MAX);
 
-    std::cout << "initial_time: " << initial_time.toSec() << std::endl;
+        }
+        // for (const auto& bag : bags) {
+        //     view.addQuery(*bag, topics, initial_time, ros::TIME_MAX);
 
-    rosbag::View view;
-    BOOST_FOREACH (std::shared_ptr<rosbag::Bag> bag, bags) {
-        view.addQuery(*bag, topics, initial_time, ros::TIME_MAX);
+        // }
+        // view.sort();
+        // view.sortByTimestamp();
+        std::cout << "view size: " << view.size() << std::endl;
+        std::cout << "topics: ";
+        for (const auto& topic : topics_) {
+            std::cout << topic << " ";
+        }
+        std::cout << std::endl;
 
-    }
-    // for (const auto& bag : bags) {
-    //     view.addQuery(*bag, topics, initial_time, ros::TIME_MAX);
+        // // Start spinning (async)
+        // ros::AsyncSpinner spinner(0);
+        // spinner.start();
 
-    // }
-    // view.sort();
-    // view.sortByTimestamp();
-    std::cout << "view size: " << view.size() << std::endl;
-    std::cout << "topics: ";
-    for (const auto& topic : topics_) {
-        std::cout << topic << " ";
-    }
-    std::cout << std::endl;
+        ros::Publisher imu_pub, pc2_pub, env_pub;
 
-    // // Start spinning (async)
-    // ros::AsyncSpinner spinner(0);
-    // spinner.start();
+        // Inside main function, initialize these publishers
+        imu_pub = nh.advertise<sensor_msgs::Imu>(config.topics.imu, 1);
+        pc2_pub = nh.advertise<sensor_msgs::PointCloud2>(config.topics.lidar, 1);
+        env_pub = nh.advertise<std_msgs::String>(config.topics.env_topic, 1);
 
-    ros::Publisher imu_pub, pc2_pub, env_pub;
+        // signal(SIGINT, SigHandle);
 
-    // Inside main function, initialize these publishers
-    imu_pub = nh.advertise<sensor_msgs::Imu>(config.topics.imu, 1);
-    pc2_pub = nh.advertise<sensor_msgs::PointCloud2>(config.topics.lidar, 1);
-    env_pub = nh.advertise<std_msgs::String>(config.topics.env_topic, 1);
+        
 
-    // signal(SIGINT, SigHandle);
+        // ros::Rate rate(10);
 
-    
+        std::cout << "starting reading messages from bag..." << std::endl;
 
-    // ros::Rate rate(10);
-
-    std::cout << "starting reading messages from bag..." << std::endl;
-
-    try {
-        BOOST_FOREACH (rosbag::MessageInstance const m,  view) {
-            if (flg_exit || loc.scan_finished) {
-                break;
-            }
-            
-            //print the message type
-            // std::cout << "Message type: " << m.getTopic() << std::endl;
-            // std::cout << "Message timestamp: " << m.getTime() << std::endl;
-            // std::cout << "Message size: " << m.size() << std::endl;
-            auto imu_msg = m.instantiate<sensor_msgs::Imu>();
-            if (imu_msg) {
-                // std::cout << "Processing IMU message." << std::endl;
-                imu_callback(imu_msg);
-                imu_pub.publish(imu_msg);
-                if(!loc.get_sync_status()){
+        try {
+            BOOST_FOREACH (rosbag::MessageInstance const m,  view) {
+                if (flg_exit || loc.scan_finished) {
                     break;
                 }
-                continue;
-            }
-
-            auto pc2_msg = m.instantiate<sensor_msgs::PointCloud2>();
-            if (pc2_msg) {
-                // std::cout << "Processing PointCloud2 message." << std::endl;
-                lidar_callback(pc2_msg);
-                pc2_pub.publish(pc2_msg);
-                if(!loc.get_sync_status()){
-                    break;
+                
+                //print the message type
+                // std::cout << "Message type: " << m.getTopic() << std::endl;
+                // std::cout << "Message timestamp: " << m.getTime() << std::endl;
+                // std::cout << "Message size: " << m.size() << std::endl;
+                auto imu_msg = m.instantiate<sensor_msgs::Imu>();
+                if (imu_msg) {
+                    // std::cout << "Processing IMU message." << std::endl;
+                    imu_callback(imu_msg);
+                    imu_pub.publish(imu_msg);
+                    if(!loc.get_sync_status()){
+                        break;
+                    }
+                    continue;
                 }
-                continue;
-            }
 
-            auto env_msg = m.instantiate<std_msgs::String>();
-            if (env_msg) {
-                // std::cout << "Processing Environment message." << std::endl;
-                env_callback(env_msg);
-                env_pub.publish(env_msg);
-                if(!loc.get_sync_status()){
-                    break;
+                auto pc2_msg = m.instantiate<sensor_msgs::PointCloud2>();
+                if (pc2_msg) {
+                    // std::cout << "Processing PointCloud2 message." << std::endl;
+                    lidar_callback(pc2_msg);
+                    pc2_pub.publish(pc2_msg);
+                    if(!loc.get_sync_status()){
+                        break;
+                    }
+                    continue;
                 }
-                continue;
-            }
-            // rate.sleep();
 
+                auto env_msg = m.instantiate<std_msgs::String>();
+                if (env_msg) {
+                    // std::cout << "Processing Environment message." << std::endl;
+                    env_callback(env_msg);
+                    env_pub.publish(env_msg);
+                    if(!loc.get_sync_status()){
+                        break;
+                    }
+                    continue;
+                }
+                // rate.sleep();
+
+                // ros::spinOnce(); 
+            }
             // ros::spinOnce(); 
+
+        } catch (const std::exception& e) {
+            std::cerr << "Exception caught during message processing: " << e.what() << std::endl;
+            ros::shutdown();
+            return EXIT_FAILURE;
         }
-        // ros::spinOnce(); 
+        std::cout << "Scan finished successfully! Cleanup started :)" << endl;
 
-    } catch (const std::exception& e) {
-        std::cerr << "Exception caught during message processing: " << e.what() << std::endl;
-        ros::shutdown();
-        return EXIT_FAILURE;
+
+        BOOST_FOREACH (std::shared_ptr<rosbag::Bag> bag, bags) {
+            bag->close();
+        }
+    
+        // save_pcd();
+        //call the signal handler
+        mySIGhandler(0);
     }
-    std::cout << "Scan finished successfully! Cleanup started :)" << endl;
+    else{
+        // Define subscribers & publishers
+        ros::Subscriber lidar_sub = nh.subscribe(config.topics.lidar, 1, &lidar_callback, ros::TransportHints().tcpNoDelay());
+        ros::Subscriber imu_sub   = nh.subscribe(config.topics.imu, 1000, &imu_callback, ros::TransportHints().tcpNoDelay());
+        ros::Subscriber env_sub   = nh.subscribe(config.topics.env_topic, 1000, &env_callback, ros::TransportHints().tcpNoDelay());
 
+        // Start spinning (async)
+        ros::AsyncSpinner spinner(0);
+        spinner.start();
 
-    BOOST_FOREACH (std::shared_ptr<rosbag::Bag> bag, bags) {
-        bag->close();
+        ros::waitForShutdown();
     }
- 
-    // save_pcd();
-    //call the signal handler
-    mySIGhandler(0);
     // ros::shutdown();
 
     // ros::waitForShutdown();

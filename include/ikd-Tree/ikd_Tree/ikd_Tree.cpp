@@ -423,6 +423,7 @@ void KD_TREE<PointType>::Build(PointVector point_cloud)
 }
 
 template <typename PointType>
+// void KD_TREE<PointType>::Nearest_Search(PointType point, int k_nearest, PointVector &Nearest_Points, vector<float> &Point_Distance, float max_dist, int &found_matches)
 void KD_TREE<PointType>::Nearest_Search(PointType point, int k_nearest, PointVector &Nearest_Points, vector<float> &Point_Distance, float max_dist)
 {
     MANUAL_HEAP q(2 * k_nearest);
@@ -448,6 +449,9 @@ void KD_TREE<PointType>::Nearest_Search(PointType point, int k_nearest, PointVec
         search_mutex_counter -= 1;
         pthread_mutex_unlock(&search_flag_mutex);
     }
+
+    //override the found matches
+    // found_matches = q.size();
     int k_found = min(k_nearest, int(q.size()));
     PointVector().swap(Nearest_Points);
     vector<float>().swap(Point_Distance);
