@@ -25,7 +25,7 @@ calibration:  # automatic IMU calibration (if all set to false, no calibration w
   gravity_align: true     # estimate gravity vector
   accel: false             # estimate lin. accel. bias
   gyro: false              # estimate ang. vel. bias
-  time: 3.0               # [s] time to estimate (during this time, the robot must be at stand still)
+  time: 3.0            # [s] time to estimate (during this time, the robot must be at stand still)
 
 extrinsics: # w.r.t baselink [SI]
   imu:
@@ -44,9 +44,13 @@ extrinsics: # w.r.t baselink [SI]
     # # # R: [ 0.774, 0.633, -0.0005,
     # # #     -0.633, 0.774,  0.03,
     # # #     0.022, -0.026,  0.999 ] # -40º
+    # R: [ 0.,  1.,  0.,
+    #       -1.,  0.,  0.,
+    #       0.,  0.,  1. ]
+
     R: [ 1.,  0.,  0.,
-          0.,  1.,  0.,
-          0.,  0.,  1. ]
+      0.,  1.,  0.,
+      0.,  0.,  1. ]
     # t: [0, 0, -0.06334]
 
     # R: [ 
@@ -59,17 +63,28 @@ extrinsics: # w.r.t baselink [SI]
     #     0.995952, -0.0276707,  0.0855242,
     #     -0.0407584,   0.708997,   0.704033]
 
-
 intrinsics:
   accel:
+    # (device 1)
     bias: [4.8066600394948737e-04,1.8591481791391698e-04,2.9535896619327070e-04 ]  # [m/s^2]
+    # (device3)
+    # bias: [4.7894496416583701e-05, 3.2504601117417932e-06, 6.5696210681980275e-09]
+    # (device 3 new)
+    # bias: [4.7241458624466071e-03,2.3203032002587394e-03,4.3262545899650819e-03]
+    # (device 2)
     # bias: [  4.5127353440833246e-06,6.8559573760979404e-06,1.1657784230941683e-08]  # [m/s^2]    
     # bias: [0.01, 0.01, 0.01]  # [m/s^2]
     sm:   [ 1.,  0.,  0.,
             0.,  1.,  0.,
             0.,  0.,  1. ]
-  gyro:
+  gyro: 
+    # (device 1)
     bias: [  6.1344105209174259e-05, 6.7378670380355060e-05, 4.6391109238830401e-05 ]  # [rad/s]
+    # (device3)
+    # bias: [2.2806361538596478e-06, 1.9243412842385954e-06, 7.0687311654157768e-07 ]  # [rad/s]
+    # (device 3 new)
+    # bias: [6.4688443792915572e-05,9.6726062240831804e-06,1.0471105096475524e-05]
+    # (device 2)
     # bias: [  3.9405137223029604e-05, 8.6487662068979359e-06, 3.2573932378529304e-05]  # [rad/s]
 
     # bias: [  0.01, 0.01, 0.01 ]  # [rad/s]
@@ -83,9 +98,9 @@ filters:
 
   voxelGrid:
     active: true
-    leafSize: [0.05,0.05,0.05]
+    leafSize: [0.2 , 0.2, 0.2]
     small_room_leafSize: [0.05, 0.05, 0.05]
-    medium_room_leafSize: [0.08, 0.08, 0.08]
+    medium_room_leafSize: [0.1, 0.1, 0.1]
     button_trigger: false
 
   minDistance: # sphere crop
@@ -102,10 +117,10 @@ filters:
 
 iKFoM:  # Iterative Kalman Filter on Manifolds lib
   # stable
-  MAX_NUM_ITERS: 100                # max num+1 of iterations of the KF (limits comp. load)
+  MAX_NUM_ITERS: 100               # max num+1 of iterations of the KF (limits comp. load)
   MAX_NUM_MATCHES: 40000           # max num of matches to account for when computing Jacobians (limits comp. load)
   MAX_NUM_PC2MATCH: 20000        # max num of points to consider when matching with map (limits comp. load)
-  LIMITS: 3       
+  LIMITS: 3    #higher value faster convergence but less accurate
 
   # orig
   # MAX_NUM_ITERS: 2                # max num+1 of iterations of the KF (limits comp. load)
@@ -114,7 +129,7 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
   # LIMITS: 0.001           
 
   Mapping:
-   #stable
+  #  #stable
    NUM_MATCH_POINTS: 10           # num of points that constitute a match
    MAX_DIST_PLANE: 0.25      # [m] max distance between points of every match
    PLANES_THRESHOLD: 5.0e-2     # [m] threshold to consider if match points are part of a plane 
@@ -127,8 +142,8 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
     # LocalMapping: true            # whether to keep a fixed size map (moving with the robot) or a limitless map (when active, it limits the memory in use)
 
   iKDTree: # Incremental KD Tree lib
-    balance: 0.6      # tree balancing param
-    delete: 0.3       # tree deletion param
+    balance: 0.6      # tree balancing param (higher value improves search range and rebalances the tree more often)
+    delete: 0.3       # tree deletion param (high value reduces the tree size)
     voxel: 0.1        # downsampling value
     bb_size: 300.0    # [m] Local Map's bounding box dimension
     bb_range: 50.0    # [m] Local Map's bounding box moving range (if the robot is closer than bb_range to any local map edge, the BB will move)
@@ -139,8 +154,33 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
     bias_gyro: 0.000001
     bias_accel: 0.0001
 
+
+
   esekf:
-    active: true
+    # Original Method (Information Matrix):
+    # Amount of information/certainty available in each direction
+    # Higher values = More information = More certainty
+    # Lower values = Less information = Potential degeneracy
+  # Selective Method (Covariance Matrix):
+    # Amount of variance/uncertainty in each direction
+    # Higher values = More uncertainty = Potential degeneracy
+    # Lower values = Less uncertainty = More certainty
+    active: false
+    change_according_to_env: false   #works only if button trigge
+    default:
+      # measurement_noise: 0.0001
+      # degeneracy_threshold: 0.01
+      measurement_noise: 0.0001
+      degeneracy_threshold: 10.0
+      print_degeneracy_values: false
+    small_room:
+      measurement_noise: 0.0001
+      degeneracy_threshold: 10.0
+      print_degeneracy_values: false
+    medium_room:
+      measurement_noise: 0.0001
+      degeneracy_threshold: 1.0
+      print_degeneracy_values: false
 
   # covariance:
   #   gyro: 0.25
@@ -150,9 +190,11 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
 
 save:
   dense_pcd: true
-  skewed_pcd: true           
+  skewed_pcd: true
+  break_pcd_on_service_call: true           
 
 
 offline_mode: true
-scan_path: "/media/inkers/Extreme SSD/05_FEB_UKN_BRUNTON_HESSAI_SLANT/05_FEB_CP00000_FL4_UKN_BRUNTON_15_20_26"
+scan_path: "/media/inkers/Extreme SSD1/25_FEB_CP00000_Basement-1_HIRANANDANI_HIGHLAND_MUMBAI_PART_A_RUN_2_15_19_22"
+# scan_path: /media/inkers/Disk_2TB_SSD/08_FEB_CP00000_FL0_UKN_BELVEDAR_TEST_RUN_14_44_30
 # scan_path: /media/inkers/Disk_2TB_SSD/29_JAN_CP00000_FL6_ETV_HOTEL_R1_15_23_04

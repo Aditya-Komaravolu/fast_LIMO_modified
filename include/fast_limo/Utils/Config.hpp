@@ -138,6 +138,8 @@ struct fast_limo::Config{
 
     bool save_dense_pcd;
     bool save_skewed_pcd;
+    bool save_pcd_by_parts;
+    bool new_esekf;
     std::string data_path;
     bool offline_mode;
     // Other

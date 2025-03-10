@@ -1824,72 +1824,24 @@ public:
 
 
 	void update_iterated_dyn_share_modified_selective(double R, double D, double &solve_time, bool print_degeneracy=false) {
-
-
-		// Input parameters:
-		// R: Measurement noise covariance scaling factor
-		// D: Degeneracy threshold for selective update
-		// solve_time: Variable to store computation time (passed by reference)
-		// print_degeneracy: Flag to print degeneracy information (default: false)
-		
-		// Shared data structure:
-		// dyn_share: Data structure containing:
-		//   - valid: Flag indicating if measurement data is valid
-		//   - converge: Flag indicating if iteration has converged
-		//   - z: Actual measurement vector
-		//   - h: Predicted measurement vector
-		//   - h_v: Measurement noise Jacobian
-		//   - h_x: Measurement state Jacobian
-		//   - R: Measurement noise covariance
-		
-		// State tracking variables:
-		// t: Counter for number of convergent iterations
-		// x_propagated: Copy of state vector before update
-		// P_propagated: Copy of covariance matrix before update
-		
-		// Measurement variables:
-		// dof_Measurement: Number of measurements/rows in measurement Jacobian
-		
-		// Kalman filter variables:
-		// K_h: Kalman gain applied to measurement innovation
-		// K_x: Kalman gain applied to state correction
-		// dx_new: State error vector between current and propagated state
-		
-		// Internal iteration variables used later:
-		// dx: Temporary state error storage
-		// h_x_: Measurement Jacobian (possibly sparse)
-		// solve_start: Timestamp for performance tracking
-		
-		//creating a new data structure to share the dynamic information + initializing covergence values
 		dyn_share_datastruct<scalar_type> dyn_share;
 		dyn_share.valid = true;
 		dyn_share.converge = true;
 		int t = 0;
 		state x_propagated = x_;
 		cov P_propagated = P_;
-		 //variable to store the number of measurements
-		int dof_Measurement;
-
-
+		int dof_Measurement; 
 		
-
-		// initializing Kalman gain for the measurements
-		Matrix<scalar_type, n, 1> K_h; 
-		// initializing Kalman gain for the state
+		Matrix<scalar_type, n, 1> K_h;
 		Matrix<scalar_type, n, n> K_x; 
-	
-		// initializing the variable which stores the difference between the current state and the propagated state
-		vectorized_state dx_new = vectorized_state::Zero(); 
-
-		// iterating over the maximum number of iterations
+		
+		vectorized_state dx_new = vectorized_state::Zero();
 		for(int i=-1; i<maximum_iter; i++)
 		{
-			// initializing the variable which stores the validity of the dynamic information
 			dyn_share.valid = true;	
-			// initializing the variable which stores the dynamic information
 			h_dyn_share(x_, dyn_share);
 
-			if(! dyn_share.valid)
+			if(!dyn_share.valid)
 			{
 				continue; 
 			}
@@ -1899,17 +1851,16 @@ public:
 			#else
 				Eigen::Matrix<scalar_type, Eigen::Dynamic, 12> h_x_ = dyn_share.h_x;
 			#endif
+			
 			double solve_start = omp_get_wtime();
-			// Compute difference between current and propagated state
 			dof_Measurement = h_x_.rows();
 			vectorized_state dx;
 			x_.boxminus(dx, x_propagated);
-			// Store difference in dx_new
 			dx_new = dx;
-			// Reset covariance to propagated value
+			
 			P_ = P_propagated;
 			
-			// Handle rotation states (SO3 group)
+			// Handle SO3 manifold states (rotations)
 			Matrix<scalar_type, 3, 3> res_temp_SO3;
 			MTK::vect<3, scalar_type> seg_SO3;
 			for (std::vector<std::pair<int, int> >::iterator it = x_.SO3_state.begin(); it != x_.SO3_state.end(); it++) {
@@ -1918,22 +1869,18 @@ public:
 				for(int i = 0; i < 3; i++){
 					seg_SO3(i) = dx(idx+i);
 				}
-				//DOUBT::1
-				// Compute SO3 updates
+
 				res_temp_SO3 = MTK::A_matrix(seg_SO3).transpose();
-				// Apply SO3 updates
 				dx_new.template block<3, 1>(idx, 0) = res_temp_SO3 * dx_new.template block<3, 1>(idx, 0);
-				// Update covariance
 				for(int i = 0; i < n; i++){
-					P_. template block<3, 1>(idx, i) = res_temp_SO3 * (P_. template block<3, 1>(idx, i));	
+					P_.template block<3, 1>(idx, i) = res_temp_SO3 * (P_.template block<3, 1>(idx, i));	
 				}
-				// Update covariance
 				for(int i = 0; i < n; i++){
-					P_. template block<1, 3>(i, idx) =(P_. template block<1, 3>(i, idx)) *  res_temp_SO3.transpose();	
+					P_.template block<1, 3>(i, idx) =(P_.template block<1, 3>(i, idx)) * res_temp_SO3.transpose();	
 				}
 			}
 
-			// Handle spherical states (S2 manifold)
+			// Handle S2 manifold states (unit vectors)
 			Matrix<scalar_type, 2, 2> res_temp_S2;
 			MTK::vect<2, scalar_type> seg_S2;
 			for (std::vector<std::pair<int, int> >::iterator it = x_.S2_state.begin(); it != x_.S2_state.end(); it++) {
@@ -1943,127 +1890,114 @@ public:
 					seg_S2(i) = dx(idx + i);
 				}
 
-				//DOUBT::2
 				Eigen::Matrix<scalar_type, 2, 3> Nx;
 				Eigen::Matrix<scalar_type, 3, 2> Mx;
 				x_.S2_Nx_yy(Nx, idx);
 				x_propagated.S2_Mx(Mx, seg_S2, idx);
 				res_temp_S2 = Nx * Mx; 
 				dx_new.template block<2, 1>(idx, 0) = res_temp_S2 * dx_new.template block<2, 1>(idx, 0);
-				// Update covariance
 				for(int i = 0; i < n; i++){
-					P_. template block<2, 1>(idx, i) = res_temp_S2 * (P_. template block<2, 1>(idx, i));	
+					P_.template block<2, 1>(idx, i) = res_temp_S2 * (P_.template block<2, 1>(idx, i));	
 				}
-				// Update covariance
 				for(int i = 0; i < n; i++){
-					P_. template block<1, 2>(i, idx) = (P_. template block<1, 2>(i, idx)) * res_temp_S2.transpose();
+					P_.template block<1, 2>(i, idx) = (P_.template block<1, 2>(i, idx)) * res_temp_S2.transpose();
 				}
 			}
 
-			// HTH is the Hessian matrix formed by h_x_.transpose() * h_x_
-			// where h_x_ is the measurement Jacobian matrix
-			// It represents the information matrix and is used to detect measurement degeneracy
-			// Large condition numbers or small determinants of HTH indicate degeneracy
+			// Calculate HTH (information matrix for pose)
 			Eigen::Matrix<scalar_type, 12, 12> HTH;
-
+			HTH = h_x_.transpose() * h_x_;
+			
+			// Calculate Sigma (covariance matrix) for pose components
+			Eigen::Matrix<scalar_type, 6, 6> HTH_pose = HTH.template block<6, 6>(0, 0);
+			double detHTH = HTH_pose.determinant();
+			
+			// Use regularization for numerical stability if near-singular
+			Eigen::Matrix<scalar_type, 6, 6> Sigma;
+			if (std::fabs(detHTH) < 1e-8) {
+				Sigma = (HTH_pose + 1e-6 * Eigen::Matrix<scalar_type, 6, 6>::Identity()).inverse();
+			} else {
+				Sigma = HTH_pose.inverse();
+			}
+			
+			// Eigendecomposition of covariance matrix
+			Eigen::SelfAdjointEigenSolver<Eigen::Matrix<scalar_type, 6, 6>> saes(Sigma);
+			Eigen::Matrix<scalar_type, 6, 1> VAPs = saes.eigenvalues();
+			Eigen::Matrix<scalar_type, 6, 6> VEPs = saes.eigenvectors();
+			
+			if (print_degeneracy) {
+				std::cout << "Covariance Eigenvalues: ";
+				for (int i = 0; i < 6; i++) std::cout << VAPs(i) << " ";
+				std::cout << std::endl;
+			}
+			
+			// Create selection matrix (S) - zero out degenerate directions
+			Eigen::Matrix<scalar_type, 6, 6> S = Eigen::Matrix<scalar_type, 6, 6>::Identity();
+			for (int i = 0; i < 6; i++) {
+				if (VAPs(i) > D) { // Large eigenvalues in covariance = high uncertainty
+					S(i, i) = 0;  // Zero out degenerate directions
+				}
+			}
+			
+			// Create full selection matrix (apply to pose only)
+			Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> S_full = 
+				Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic>::Identity(n, n);
+			S_full.template block<6, 6>(0, 0) = S;
+			
+			// Compute Kalman gain based on measurement model
 			if(n > dof_Measurement)
 			{
-				Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> h_x_cur = Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic>::Zero(dof_Measurement, n);
+				Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> h_x_cur = 
+					Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic>::Zero(dof_Measurement, n);
 				h_x_cur.topLeftCorner(dof_Measurement, 12) = h_x_;
 								
-				Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> K_ = P_ * h_x_cur.transpose() * (h_x_cur * P_ * h_x_cur.transpose()/R + Eigen::Matrix<double, Dynamic, Dynamic>::Identity(dof_Measurement, dof_Measurement)).inverse()/R;
+				Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> K_ = 
+					P_ * h_x_cur.transpose() * 
+					(h_x_cur * P_ * h_x_cur.transpose()/R + 
+					Eigen::Matrix<double, Dynamic, Dynamic>::Identity(dof_Measurement, dof_Measurement)).inverse()/R;
+				
 				K_h = K_ * dyn_share.h;
 				K_x = K_ * h_x_cur;
 			}
 			else
 			{
-			#ifdef USE_sparse
-				spMt A = h_x_.transpose() * h_x_;
-				cov P_temp = (P_/R).inverse();
-				P_temp. template block<12, 12>(0, 0) += A;
-				P_temp = P_temp.inverse();
-				
-				K_ = P_temp. template block<n, 12>(0, 0) * h_x_.transpose();
-				K_x = cov::Zero();
-				K_x. template block<n, 12>(0, 0) = P_inv. template block<n, 12>(0, 0) * HTH;
-			#else
-				cov P_temp = (P_/R).inverse();
-				HTH = h_x_.transpose() * h_x_; 
-				P_temp. template block<12, 12>(0, 0) += HTH;
-				
-				cov P_inv = P_temp.inverse();
-				K_h = P_inv. template block<n, 12>(0, 0) * h_x_.transpose() * dyn_share.h;
-				K_x.setZero();
-				K_x. template block<n, 12>(0, 0) = P_inv. template block<n, 12>(0, 0) * HTH;
-			#endif 
-			}
-
-
-			// Degeneracy
-
-			//modification1: calculate degeneracy using covariance instead of HTH
-			// Changes:
-			// •	Instead of analyzing the Hessian  H^T H , invert it to get the covariance matrix  \Sigma = (H^T H)^{-1} .
-			// •	Perform Eigenvalue Decomposition on  \Sigma  instead of  H^T H  (since small eigenvalues in  H^T H  indicate degeneracy, while large eigenvalues in  \Sigma  do).
-			
-			Eigen::Matrix<scalar_type, 6, 6> HTH_sub = HTH.topLeftCorner(6, 6);
-			scalar_type detHTH = HTH_sub.determinant();
-			std::cout << "HTH Determinant: " << detHTH << std::endl;
-
-			// Use pseudo-inverse if singular
-			Eigen::Matrix<scalar_type, 6, 6> Sigma;
-			if (std::fabs(detHTH) < 1e-8) {
-				Sigma = (HTH_sub + 1e-6 * Eigen::Matrix<scalar_type, 6, 6>::Identity()).inverse();
-			} else {
-				Sigma = HTH_sub.inverse();
-			}
-
-			// Eigen::Matrix<scalar_type, 6, 6> Sigma = HTH.inverse();
-			Eigen::EigenSolver<Eigen::Matrix<scalar_type, 6, 6>> es(Sigma);
-			Eigen::Matrix<scalar_type, 6, 6> VEPs = es.eigenvectors().real();
-			Eigen::Matrix<scalar_type, 1, 6> VAPs = es.eigenvalues().real();
-
-
-			if (VAPs.prod() < 1e-20) VEPs = Eigen::Matrix<scalar_type, 6, 6>::Identity();
-			Eigen::Matrix<scalar_type, 6, 6> selVEPs = VEPs;
-
-			//	Instead of checking  VAPs  for small values, check for large values (greater than a degeneracy threshold)
-			for (int i = 0; i < 6; i++) {
-				if (VAPs(i) > D) { // New check
-					selVEPs.template block<1,6>(i,0) *= 0;  // Filter out non-degenerate directions
-				}
+				#ifdef USE_sparse
+					spMt A = h_x_.transpose() * h_x_;
+					cov P_temp = (P_/R).inverse();
+					P_temp.template block<12, 12>(0, 0) += A;
+					P_temp = P_temp.inverse();
+					
+					Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> K_ = 
+						P_temp.template block<n, 12>(0, 0) * h_x_.transpose();
+					K_h = K_ * dyn_share.h;
+					K_x.setZero();
+					K_x.template block<n, 12>(0, 0) = P_temp.template block<n, 12>(0, 0) * HTH;
+				#else
+					cov P_temp = (P_/R).inverse();
+					P_temp.template block<12, 12>(0, 0) += HTH;
+					
+					cov P_inv = P_temp.inverse();
+					K_h = P_inv.template block<n, 12>(0, 0) * h_x_.transpose() * dyn_share.h;
+					K_x.setZero();
+					K_x.template block<n, 12>(0, 0) = P_inv.template block<n, 12>(0, 0) * HTH;
+				#endif 
 			}
 			
-			if (print_degeneracy) { for (int vapi = 0; vapi < 6; ++vapi) std::cout << VAPs(vapi) << " "; std::cout << std::endl; }
-			
-			//Modify  K_x  to only apply IMU updates in degenerative directions:
-			Eigen::Matrix<scalar_type, 6, 6> S = Eigen::Matrix<scalar_type, 6, 6>::Identity();
-			for (int i = 0; i < 6; i++) {
-				if (VAPs(i) < D) {
-					S(i, i) = 0;  // Do not apply updates in non-degenerate directions
-				}
-			}
-			// Define a selection matrix S that only affects the first 6x6 block
-			Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> S_full = Eigen::Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic>::Identity(n, n);
-			S_full.topLeftCorner(6, 6) = S;  // Apply the selective filtering only to the first 6x6 block
-
-			// Apply selective filtering
+			// Apply selective filtering to Kalman gain
 			K_x = S_full * K_x;
-			// K_x = S * K_x;  // Apply selective filtering
-
-
-			//IMU updates are applied only in degenerative directions.
-			Matrix<scalar_type, n, 1> dx_ = K_h + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new; 
+			
+			// Compute state update
+			Matrix<scalar_type, n, 1> dx_ = K_h + (K_x - Matrix<scalar_type, n, n>::Identity()) * dx_new;
+			
+			// Apply selective filtering to state update
 			dx_ = S_full * dx_;
 			
-			Matrix<scalar_type, n, 1> dx_no_degenerate_ = dx_;
-			dx_no_degenerate_.head(6) = VEPs.inverse() * selVEPs * dx_.head(6);
-
+			// Apply state update
 			state x_before = x_;
-			x_.boxplus(dx_no_degenerate_);
+			x_.boxplus(dx_);
+			
+			// Check convergence
 			dyn_share.converge = true;
-
-			// Check if the state update is within the limit
 			for(int i = 0; i < n ; i++)
 			{
 				if(std::fabs(dx_[i]) > limit[i])
@@ -2074,41 +2008,45 @@ public:
 			}
 			if(dyn_share.converge) t++;
 			
-			//precautionary step to force convergence at second-last iteration even if it reaches convergence at the last iteration
 			if(!t && i == maximum_iter - 2)
 			{
 				dyn_share.converge = true;
 			}
 
-			// If convergence is achieved or reached the maximum iteration, update the covariance matrix
+			// If converged or at maximum iterations, update covariance
 			if(t > 1 || i == maximum_iter - 1)
 			{
 				L_ = P_;
+				
+				// Handle SO3 manifold for covariance update
 				Matrix<scalar_type, 3, 3> res_temp_SO3;
 				MTK::vect<3, scalar_type> seg_SO3;
-				for(typename std::vector<std::pair<int, int> >::iterator it = x_.SO3_state.begin(); it != x_.SO3_state.end(); it++) {
+				for(typename std::vector<std::pair<int, int> >::iterator it = x_.SO3_state.begin(); 
+					it != x_.SO3_state.end(); it++) {
 					int idx = (*it).first;
 					for(int i = 0; i < 3; i++){
 						seg_SO3(i) = dx_(i + idx);
 					}
 					res_temp_SO3 = MTK::A_matrix(seg_SO3).transpose();
 					for(int i = 0; i < n; i++){
-						L_. template block<3, 1>(idx, i) = res_temp_SO3 * (P_. template block<3, 1>(idx, i)); 
+						L_.template block<3, 1>(idx, i) = res_temp_SO3 * (P_.template block<3, 1>(idx, i)); 
 					}
 					
 					for(int i = 0; i < 12; i++){
-						K_x. template block<3, 1>(idx, i) = res_temp_SO3 * (K_x. template block<3, 1>(idx, i));
+						K_x.template block<3, 1>(idx, i) = res_temp_SO3 * (K_x.template block<3, 1>(idx, i));
 					}
 					
 					for(int i = 0; i < n; i++){
-						L_. template block<1, 3>(i, idx) = (L_. template block<1, 3>(i, idx)) * res_temp_SO3.transpose();
-						P_. template block<1, 3>(i, idx) = (P_. template block<1, 3>(i, idx)) * res_temp_SO3.transpose();
+						L_.template block<1, 3>(i, idx) = (L_.template block<1, 3>(i, idx)) * res_temp_SO3.transpose();
+						P_.template block<1, 3>(i, idx) = (P_.template block<1, 3>(i, idx)) * res_temp_SO3.transpose();
 					}
 				}
 
+				// Handle S2 manifold for covariance update
 				Matrix<scalar_type, 2, 2> res_temp_S2;
 				MTK::vect<2, scalar_type> seg_S2;
-				for(typename std::vector<std::pair<int, int> >::iterator it = x_.S2_state.begin(); it != x_.S2_state.end(); it++) {
+				for(typename std::vector<std::pair<int, int> >::iterator it = x_.S2_state.begin(); 
+					it != x_.S2_state.end(); it++) {
 					int idx = (*it).first;
 
 					for(int i = 0; i < 2; i++){
@@ -2121,30 +2059,28 @@ public:
 					x_propagated.S2_Mx(Mx, seg_S2, idx);
 					res_temp_S2 = Nx * Mx; 
 					for(int i = 0; i < n; i++){
-						L_. template block<2, 1>(idx, i) = res_temp_S2 * (P_. template block<2, 1>(idx, i)); 
+						L_.template block<2, 1>(idx, i) = res_temp_S2 * (P_.template block<2, 1>(idx, i)); 
 					}
 					
 					for(int i = 0; i < 12; i++){
-						K_x. template block<2, 1>(idx, i) = res_temp_S2 * (K_x. template block<2, 1>(idx, i));
+						K_x.template block<2, 1>(idx, i) = res_temp_S2 * (K_x.template block<2, 1>(idx, i));
 					}
 				
 					for(int i = 0; i < n; i++){
-						L_. template block<1, 2>(i, idx) = (L_. template block<1, 2>(i, idx)) * res_temp_S2.transpose();
-						P_. template block<1, 2>(i, idx) = (P_. template block<1, 2>(i, idx)) * res_temp_S2.transpose();
+						L_.template block<1, 2>(i, idx) = (L_.template block<1, 2>(i, idx)) * res_temp_S2.transpose();
+						P_.template block<1, 2>(i, idx) = (P_.template block<1, 2>(i, idx)) * res_temp_S2.transpose();
 					}
 				}
 
-				// P_ = L_ - K_x.template block<n, 12>(0, 0) * P_.template block<12, n>(0, 0);
-				//This ensures that covariance updates only apply to degenerative directions
-				
+				// Joseph form covariance update with selective filtering
 				P_ = S_full * (L_ - K_x.template block<n, 12>(0, 0) * P_.template block<12, n>(0, 0)) * S_full.transpose();
+				
 				solve_time += omp_get_wtime() - solve_start;
 				return;
 			}
 			solve_time += omp_get_wtime() - solve_start;
 		}
 	}
-	
 
 	void change_x(state &input_state)
 	{

@@ -25,6 +25,8 @@ double latest_lidar_timestamp;
 
 condition_variable sig_buffer;
 
+bool save_pcd_by_parts = false;
+
 bool flg_exit = false;
 // Service callback for setting voxel leaf size
 bool set_leaf_size_callback(fast_limo::manualTrigger::Request &req, fast_limo::manualTrigger::Response &res) {
@@ -372,6 +374,85 @@ void save_pcd(){
 
 }
 
+int part_count = 0;
+pcl::PointCloud<PointType>::Ptr diff_dense_cloud;
+pcl::PointCloud<PointType>::Ptr diff_downsampled_cloud;
+bool save_pcd_by_parts_callback(){
+    fast_limo::Localizer& loc = fast_limo::Localizer::getInstance();
+    fast_limo::Config& config = loc.get_config();
+
+    pcl::PointCloud<PointType>::Ptr dense_pcl = loc.get_accumulated_pointcloud();
+    pcl::PointCloud<PointType>::Ptr downsampled_pcl = loc.get_accumulated_downsampled_pointcloud();
+
+    if (config.save_dense_pcd && config.save_pcd_by_parts && !dense_pcl->empty()){
+
+
+        std::string pcd_path = base_path + "/PCD/part_" + std::to_string(part_count) + ".pcd";
+        std::cout << "Saving point cloud to " << pcd_path << std::endl;
+
+        std::cout << "Point cloud size: " << dense_pcl->size() << std::endl;
+
+        
+
+        // Save the point cloud to a file
+        pcl::PCDWriter pcd_writer;
+        pcd_writer.writeBinary(pcd_path, *dense_pcl);
+        dense_pcl->clear();
+        std::cout << "Saved the part point cloud to " << pcd_path << std::endl;
+        // *diff_dense_cloud += *cloud;
+    }
+
+    
+    // if (config.save_skewed_pcd && config.save_pcd_by_parts && !downsampled_pcl->empty()){
+    //     // pcl::PointCloud<PointType>::Ptr cloud = loc.get_accumulated_downsampled_pointcloud();
+    //     std::string pcd_path = base_path + "/PCD/part_downsampled_" + std::to_string(part_count) + ".pcd";
+    //     std::cout << "Saving point cloud to " << pcd_path << std::endl;
+    //     std::cout << "Point cloud size: " << downsampled_pcl->size() << std::endl;
+    //     pcl::PCDWriter pcd_writer;
+    //     pcd_writer.writeBinary(pcd_path, *downsampled_pcl);
+    //     std::cout << "Saved the final point cloud to " << pcd_path << std::endl;
+    //     downsampled_pcl->clear();
+    //     // *diff_downsampled_cloud += *cloud;
+    // }
+    // part_count++;
+    // res.success = true;
+    // res.message = "Saved pcd part" ;
+    // return true;
+
+}
+
+bool break_pcd_on_service_callback(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res){
+
+    fast_limo::Localizer& loc = fast_limo::Localizer::getInstance();
+    fast_limo::Config& config = loc.get_config();
+
+    pcl::PointCloud<PointType>::Ptr dense_pcl = loc.get_accumulated_pointcloud();
+
+    if (config.save_dense_pcd && config.save_pcd_by_parts && !dense_pcl->empty()){
+
+
+        std::string pcd_path = base_path + "/PCD/part_" + std::to_string(part_count) + ".pcd";
+        std::cout << "Saving point cloud to " << pcd_path << std::endl;
+
+        std::cout << "Point cloud size: " << dense_pcl->size() << std::endl;
+
+        
+
+        // Save the point cloud to a file
+        pcl::PCDWriter pcd_writer;
+        pcd_writer.writeBinary(pcd_path, *dense_pcl);
+        dense_pcl->clear();
+        std::cout << "Saved the part point cloud to " << pcd_path << std::endl;
+        // *diff_dense_cloud += *cloud;
+        part_count++;
+    }
+    
+    save_pcd_by_parts = true;
+    res.success = true;
+    res.message = "Break pcd on service call";
+    return true;
+}
+
 void mySIGhandler(int sig){
     flg_exit = true;
     ROS_WARN("catch sig %d", sig);
@@ -489,8 +570,8 @@ void load_config(ros::NodeHandle* nh_ptr, fast_limo::Config* config){
 
     nh_ptr->param<bool>("iKFoM/esekf/active", config->esekf.active, true);
     nh_ptr->param<bool>("iKFoM/esekf/change_according_to_env", config->esekf.change_according_to_env, false);
-    nh_ptr->param<double>("iKFoM/esekf/default/measurement_noise", config->esekf.measurement_noise, 0.0001);  
-    nh_ptr->param<double>("iKFoM/esekf/default/degeneracy_threshold", config->esekf.degeneracy_threshold, 0.0001);  
+    nh_ptr->param<double>("iKFoM/esekf/default/measurement_noise", config->esekf.measurement_noise, 0.001);  
+    nh_ptr->param<double>("iKFoM/esekf/default/degeneracy_threshold", config->esekf.degeneracy_threshold, 5.0);  
     nh_ptr->param<double>("iKFoM/esekf/small_room/measurement_noise", config->esekf.small_room_measurement_noise, 0.0001);  
     nh_ptr->param<double>("iKFoM/esekf/small_room/degeneracy_threshold", config->esekf.small_room_degeneracy_threshold, 0.0001);  
     nh_ptr->param<double>("iKFoM/esekf/medium_room/measurement_noise", config->esekf.medium_room_measurement_noise, 0.0001);  
@@ -505,6 +586,7 @@ void load_config(ros::NodeHandle* nh_ptr, fast_limo::Config* config){
 
     nh_ptr->param<bool>("save/dense_pcd", config->save_dense_pcd, false);
     nh_ptr->param<bool>("save/skewed_pcd", config->save_skewed_pcd, false);
+    nh_ptr->param<bool>("save/break_pcd_on_service_call", config->save_pcd_by_parts, false);
 
     nh_ptr->param<bool>("offline_mode", config->offline_mode, false);
 
@@ -546,6 +628,8 @@ int main(int argc, char** argv) {
     // Define services
     ros::ServiceServer set_leaf_size_service = nh.advertiseService("set_leaf_size", set_leaf_size_callback);
 
+    ros::ServiceServer save_pcd_service = nh.advertiseService("break_pcd", break_pcd_on_service_callback);
+
     pc_pub      = nh.advertise<sensor_msgs::PointCloud2>("pointcloud", 1);
     state_pub   = nh.advertise<nav_msgs::Odometry>("state", 1);
 
@@ -557,6 +641,7 @@ int main(int argc, char** argv) {
     body_pub     = nh.advertise<nav_msgs::Odometry>("body_state", 1);
     map_bb_pub   = nh.advertise<visualization_msgs::Marker>("map/bb", 1);
     match_points_pub = nh.advertise<visualization_msgs::MarkerArray>("match_points", 1);
+    
 
     // Set up fast_limo config
     loc.init(config);
@@ -652,7 +737,7 @@ int main(int argc, char** argv) {
 
         
 
-        // ros::Rate rate(10);
+        ros::Rate rate(10);
 
         std::cout << "starting reading messages from bag..." << std::endl;
 
@@ -660,6 +745,10 @@ int main(int argc, char** argv) {
             BOOST_FOREACH (rosbag::MessageInstance const m,  view) {
                 if (flg_exit || loc.scan_finished) {
                     break;
+                }
+
+                if (save_pcd_by_parts){
+                    save_pcd_by_parts_callback();
                 }
                 
                 //print the message type
@@ -698,9 +787,8 @@ int main(int argc, char** argv) {
                     }
                     continue;
                 }
-                // rate.sleep();
-
-                // ros::spinOnce(); 
+                rate.sleep();
+                ros::spinOnce(); 
             }
             // ros::spinOnce(); 
 

@@ -654,6 +654,7 @@
                     }
                 } 
                 else{
+                    this->config.new_esekf=true;
                     this->_iKFoM.update_iterated_dyn_share_modified_selective(this->config.esekf.measurement_noise /*LiDAR noise*/, this->config.esekf.degeneracy_threshold /*Degeneracy threshold*/, 
                                                                                         solve_time/*solving time elapsed*/, this->config.esekf.print_degeneracy_values /*print degeneracy values flag*/);
                     
@@ -1648,5 +1649,11 @@
                     << "|" << std::endl;
             }
             std::cout << "+-------------------------------------------------------------------+" << std::endl;
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "New ESEKF: " + std::string(this->config.new_esekf ? "True" : "False")
+                << "|" << std::endl;
+
+            std::cout << "+-------------------------------------------------------------------+" << std::endl;
+            
 
         }
