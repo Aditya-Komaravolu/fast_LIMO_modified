@@ -1823,7 +1823,7 @@ public:
 	}
 
 
-	void update_iterated_dyn_share_modified_selective(double R, double D, double &solve_time, bool print_degeneracy=false) {
+	void update_iterated_dyn_share_modified_selective(double R, double D, double &solve_time, Eigen::Matrix<scalar_type, 6, 1> &cov_eigenvalues,bool print_degeneracy=false) {
 		dyn_share_datastruct<scalar_type> dyn_share;
 		dyn_share.valid = true;
 		dyn_share.converge = true;
@@ -1924,6 +1924,8 @@ public:
 			Eigen::SelfAdjointEigenSolver<Eigen::Matrix<scalar_type, 6, 6>> saes(Sigma);
 			Eigen::Matrix<scalar_type, 6, 1> VAPs = saes.eigenvalues();
 			Eigen::Matrix<scalar_type, 6, 6> VEPs = saes.eigenvectors();
+
+			cov_eigenvalues = VAPs;
 			
 			if (print_degeneracy) {
 				std::cout << "Covariance Eigenvalues: ";

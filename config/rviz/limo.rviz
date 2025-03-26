@@ -447,6 +447,14 @@ Visualization Manager:
           Name: GrayScale
       Enabled: false
       Name: KITTI_dataset
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /fast_limo/map/ground_plane
+      Name: GroundPlane
+      Namespaces:
+        {}
+      Queue Size: 100
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0

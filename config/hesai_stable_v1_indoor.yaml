@@ -25,7 +25,7 @@ calibration:  # automatic IMU calibration (if all set to false, no calibration w
   gravity_align: true     # estimate gravity vector
   accel: false             # estimate lin. accel. bias
   gyro: false              # estimate ang. vel. bias
-  time: 3.0            # [s] time to estimate (during this time, the robot must be at stand still)
+  time: 0.05            # [s] time to estimate (during this time, the robot must be at stand still)
 
 extrinsics: # w.r.t baselink [SI]
   imu:
@@ -68,11 +68,11 @@ intrinsics:
     # (device 1)
     # bias: [4.8066600394948737e-04,1.8591481791391698e-04,2.9535896619327070e-04 ]  # [m/s^2]
     # (device3)
-    bias: [4.7894496416583701e-05, 3.2504601117417932e-06, 6.5696210681980275e-09]
+    # bias: [4.7894496416583701e-05, 3.2504601117417932e-06, 6.5696210681980275e-09]
     # (device 3 new)
     # bias: [4.7241458624466071e-03,2.3203032002587394e-03,4.3262545899650819e-03]
     # (device 2)
-    # bias: [  4.5127353440833246e-06,6.8559573760979404e-06,1.1657784230941683e-08]  # [m/s^2]    
+    bias: [  4.5127353440833246e-06,6.8559573760979404e-06,1.1657784230941683e-08]  # [m/s^2]    
     # bias: [0.01, 0.01, 0.01]  # [m/s^2]
     sm:   [ 1.,  0.,  0.,
             0.,  1.,  0.,
@@ -81,11 +81,11 @@ intrinsics:
     # (device 1)
     # bias: [  6.1344105209174259e-05, 6.7378670380355060e-05, 4.6391109238830401e-05 ]  # [rad/s]
     # (device3)
-    bias: [2.2806361538596478e-06, 1.9243412842385954e-06, 7.0687311654157768e-07 ]  # [rad/s]
+    # bias: [2.2806361538596478e-06, 1.9243412842385954e-06, 7.0687311654157768e-07 ]  # [rad/s]
     # (device 3 new)
     # bias: [6.4688443792915572e-05,9.6726062240831804e-06,1.0471105096475524e-05]
     # (device 2)
-    # bias: [  3.9405137223029604e-05, 8.6487662068979359e-06, 3.2573932378529304e-05]  # [rad/s]
+    bias: [  3.9405137223029604e-05, 8.6487662068979359e-06, 3.2573932378529304e-05]  # [rad/s]
 
     # bias: [  0.01, 0.01, 0.01 ]  # [rad/s]
 
@@ -98,7 +98,7 @@ filters:
 
   voxelGrid:
     active: true
-    leafSize: [0.2 , 0.2, 0.2]
+    leafSize: [0.2, 0.2, 0.2]
     small_room_leafSize: [0.05, 0.05, 0.05]
     medium_room_leafSize: [0.1, 0.1, 0.1]
     button_trigger: false
@@ -173,17 +173,17 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
     # selective_method: false
     change_according_to_env: false   #works only if button trigge
     default:
-      # measurement_noise: 0.0001
-      # degeneracy_threshold: 0.01
-      measurement_noise: 0.0001
-      degeneracy_threshold: 10.0
+      measurement_noise: 0.01
+      degeneracy_threshold: 10000.0
+      # measurement_noise: 0.01
+      # degeneracy_threshold: 10.0
       print_degeneracy_values: false
     small_room:
-      measurement_noise: 0.0001
+      measurement_noise: 0.01
       degeneracy_threshold: 10.0
       print_degeneracy_values: false
     medium_room:
-      measurement_noise: 0.0001
+      measurement_noise: 0.01
       degeneracy_threshold: 1.0
       print_degeneracy_values: false
 
@@ -200,6 +200,6 @@ save:
 
 
 offline_mode: true
-scan_path: "/media/inkers/Extreme SSD/18_MAR_ETV_OFFICE_HESAI/18_MAR_CP00826_FL2_TOWER_A_RUN_1_12_41_18"
+scan_path: "/media/inkers/Extreme SSD/11_MAR_Hesai_Brunton/11_MAR_CP00000_FL1_UKN_BRUNTON_FLAT_B_15_08_50"
 # scan_path: /media/inkers/Disk_2TB_SSD/08_FEB_CP00000_FL0_UKN_BELVEDAR_TEST_RUN_14_44_30
 # scan_path: /media/inkers/Disk_2TB_SSD/29_JAN_CP00000_FL6_ETV_HOTEL_R1_15_23_04

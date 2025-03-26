@@ -2,8 +2,8 @@
 
 topics:
   input:
-    lidar: /hesai/pandar
-    imu: /imu/data
+    lidar: /livox/lidar
+    imu: /livox/imu
     env: /small_room
   # output:
 
@@ -13,7 +13,7 @@ frames: # output frames (the transform between frames will be broadcasted)
   
 num_threads: 20 # OpenMP threads (will be equal to $(nproc) if it is set higher)
 
-sensor_type: 2  # LiDAR type (0: OUSTER \ 1: VELODYNE \ 2: HESAI \ 3: LIVOX)
+sensor_type: 3  # LiDAR type (0: OUSTER \ 1: VELODYNE \ 2: HESAI \ 3: LIVOX)
 
 debug: true     # fill useful intermediate pcl (deskewed, final_raw...) for visualizing purposes
 verbose: true   # print debug/performance board
@@ -25,11 +25,11 @@ calibration:  # automatic IMU calibration (if all set to false, no calibration w
   gravity_align: true     # estimate gravity vector
   accel: false             # estimate lin. accel. bias
   gyro: false              # estimate ang. vel. bias
-  time: 3.0            # [s] time to estimate (during this time, the robot must be at stand still)
+  time: 0.5          # [s] time to estimate (during this time, the robot must be at stand still)
 
 extrinsics: # w.r.t baselink [SI]
   imu:
-    t: [ 0,0,0 ]
+    t: [ -0.011, -0.02329, 0.04412 ]
     R: [ 1.,  0.,  0.,
           0.,  1.,  0.,
           0.,  0.,  1. ]
@@ -63,31 +63,17 @@ extrinsics: # w.r.t baselink [SI]
     #     0.995952, -0.0276707,  0.0855242,
     #     -0.0407584,   0.708997,   0.704033]
 
+
+
 intrinsics:
   accel:
-    # (device 1)
-    # bias: [4.8066600394948737e-04,1.8591481791391698e-04,2.9535896619327070e-04 ]  # [m/s^2]
-    # (device3)
-    bias: [4.7894496416583701e-05, 3.2504601117417932e-06, 6.5696210681980275e-09]
-    # (device 3 new)
-    # bias: [4.7241458624466071e-03,2.3203032002587394e-03,4.3262545899650819e-03]
-    # (device 2)
-    # bias: [  4.5127353440833246e-06,6.8559573760979404e-06,1.1657784230941683e-08]  # [m/s^2]    
-    # bias: [0.01, 0.01, 0.01]  # [m/s^2]
+    bias: [3.74305463, -0.19842248, -7.98236227]  # [m/s^2]
     sm:   [ 1.,  0.,  0.,
             0.,  1.,  0.,
             0.,  0.,  1. ]
   gyro: 
-    # (device 1)
-    # bias: [  6.1344105209174259e-05, 6.7378670380355060e-05, 4.6391109238830401e-05 ]  # [rad/s]
-    # (device3)
-    bias: [2.2806361538596478e-06, 1.9243412842385954e-06, 7.0687311654157768e-07 ]  # [rad/s]
-    # (device 3 new)
-    # bias: [6.4688443792915572e-05,9.6726062240831804e-06,1.0471105096475524e-05]
-    # (device 2)
-    # bias: [  3.9405137223029604e-05, 8.6487662068979359e-06, 3.2573932378529304e-05]  # [rad/s]
+    bias: [  0.01324209, -0.01809744, -0.04366921 ]  # [rad/s]
 
-    # bias: [  0.01, 0.01, 0.01 ]  # [rad/s]
 
 filters:
   cropBox: # prism crop
@@ -98,8 +84,8 @@ filters:
 
   voxelGrid:
     active: true
-    leafSize: [0.2 , 0.2, 0.2]
-    small_room_leafSize: [0.05, 0.05, 0.05]
+    leafSize: [0.1 , 0.1, 0.1]
+    small_room_leafSize: [0.1, 0.1, 0.1]
     medium_room_leafSize: [0.1, 0.1, 0.1]
     button_trigger: false
 
@@ -113,33 +99,20 @@ filters:
   
   rateSampling: # quick downsample
     active: true
-    value: 7
+    value: 1
 
 iKFoM:  # Iterative Kalman Filter on Manifolds lib
-  # stable
-  MAX_NUM_ITERS: 100               # max num+1 of iterations of the KF (limits comp. load)
-  MAX_NUM_MATCHES: 40000           # max num of matches to account for when computing Jacobians (limits comp. load)
-  MAX_NUM_PC2MATCH: 20000        # max num of points to consider when matching with map (limits comp. load)
-  LIMITS: 3    #higher value faster convergence but less accurate
-
-  # orig
-  # MAX_NUM_ITERS: 2                # max num+1 of iterations of the KF (limits comp. load)
-  # MAX_NUM_MATCHES: 5000           # max num of matches to account for when computing Jacobians (limits comp. load)
-  # MAX_NUM_PC2MATCH: 1.e+4         # max num of points to consider when matching with map (limits comp. load)
-  # LIMITS: 0.001           
+  MAX_NUM_ITERS: 2                # max num+1 of iterations of the KF (limits comp. load)
+  MAX_NUM_MATCHES: 5000           # max num of matches to account for when computing Jacobians (limits comp. load)
+  MAX_NUM_PC2MATCH: 1.e+4         # max num of points to consider when matching with map (limits comp. load)
+  LIMITS: 0.001           
 
   Mapping:
-  #  #stable
-   NUM_MATCH_POINTS: 10           # num of points that constitute a match
-   MAX_DIST_PLANE: 0.25      # [m] max distance between points of every match
-   PLANES_THRESHOLD: 5.0e-2     # [m] threshold to consider if match points are part of a plane 
-   LocalMapping: true            # whether to keep a fixed size map (moving with the robot) or a limitless map (when active, it limits the memory in use)
-
     
-    # NUM_MATCH_POINTS: 5          # num of points that constitute a match
-    # MAX_DIST_PLANE: 2.0      # [m] max distance between points of every match
-    # PLANES_THRESHOLD: 2.5e-2      # [m] threshold to consider if match points are part of a plane 
-    # LocalMapping: true            # whether to keep a fixed size map (moving with the robot) or a limitless map (when active, it limits the memory in use)
+    NUM_MATCH_POINTS: 5          # num of points that constitute a match
+    MAX_DIST_PLANE: 2.0      # [m] max distance between points of every match
+    PLANES_THRESHOLD: 2.5e-2      # [m] threshold to consider if match points are part of a plane 
+    LocalMapping: true            # whether to keep a fixed size map (moving with the robot) or a limitless map (when active, it limits the memory in use)
 
   iKDTree: # Incremental KD Tree lib
     balance: 0.6      # tree balancing param (higher value improves search range and rebalances the tree more often)
@@ -148,14 +121,17 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
     bb_size: 300.0    # [m] Local Map's bounding box dimension
     bb_range: 50.0    # [m] Local Map's bounding box moving range (if the robot is closer than bb_range to any local map edge, the BB will move)
 
-
-  # If ↑ IMU Covariance → Consider ↓ Degeneracy to compensate
-  # If ↓ IMU Covariance → Consider ↑ Degeneracy to compensate
   covariance:
-    gyro: 0.0001 
-    accel: 0.01
-    bias_gyro: 0.000001
-    bias_accel: 0.0001
+    # gyro: 0.0001 
+    # accel: 0.01
+    # bias_gyro: 0.000001
+    # bias_accel: 0.0001
+    gyro: 0.25
+    accel: 0.5
+    bias_gyro: 0.000266
+    bias_accel: 0.0043
+
+
 
 
 
@@ -168,9 +144,7 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
     # Amount of variance/uncertainty in each direction
     # Higher values = More uncertainty = Potential degeneracy
     # Lower values = Less uncertainty = More certainty
-    active: false
-    # original_method: true
-    # selective_method: false
+    active: true
     change_according_to_env: false   #works only if button trigge
     default:
       # measurement_noise: 0.0001
@@ -200,6 +174,6 @@ save:
 
 
 offline_mode: true
-scan_path: "/media/inkers/Extreme SSD/18_MAR_ETV_OFFICE_HESAI/18_MAR_CP00826_FL2_TOWER_A_RUN_1_12_41_18"
+scan_path: "/media/inkers/Extreme SSD/HiraNandini_Mid/26_FEB_CP00000_Basement-2_HIRANANDANI_HIGHLAND_MUMBAI_PART_B_MID_RUN_2_15_15_15"
 # scan_path: /media/inkers/Disk_2TB_SSD/08_FEB_CP00000_FL0_UKN_BELVEDAR_TEST_RUN_14_44_30
 # scan_path: /media/inkers/Disk_2TB_SSD/29_JAN_CP00000_FL6_ETV_HOTEL_R1_15_23_04

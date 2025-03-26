@@ -11,7 +11,7 @@ frames: # output frames (the transform between frames will be broadcasted)
   world: map
   body: base_link
   
-num_threads: 20 # OpenMP threads (will be equal to $(nproc) if it is set higher)
+num_threads: 64 # OpenMP threads (will be equal to $(nproc) if it is set higher)
 
 sensor_type: 2  # LiDAR type (0: OUSTER \ 1: VELODYNE \ 2: HESAI \ 3: LIVOX)
 
@@ -25,7 +25,7 @@ calibration:  # automatic IMU calibration (if all set to false, no calibration w
   gravity_align: true     # estimate gravity vector
   accel: false             # estimate lin. accel. bias
   gyro: false              # estimate ang. vel. bias
-  time: 3.0            # [s] time to estimate (during this time, the robot must be at stand still)
+  time: 0.5            # [s] time to estimate (during this time, the robot must be at stand still)
 
 extrinsics: # w.r.t baselink [SI]
   imu:
@@ -33,6 +33,7 @@ extrinsics: # w.r.t baselink [SI]
     R: [ 1.,  0.,  0.,
           0.,  1.,  0.,
           0.,  0.,  1. ]
+
 
 
 
@@ -51,6 +52,11 @@ extrinsics: # w.r.t baselink [SI]
     R: [ 1.,  0.,  0.,
       0.,  1.,  0.,
       0.,  0.,  1. ]
+
+
+    # R: [ 0.9959149,  0.0586311,  0.0687861,        
+    #     -0.0580160, 0.9982212, -0.0091694,
+    #   -0.0693025, 0.0051098,  0.9975804]
     # t: [0, 0, -0.06334]
 
     # R: [ 
@@ -62,6 +68,7 @@ extrinsics: # w.r.t baselink [SI]
     #     -0.0801174,  -0.704669,   0.704999,
     #     0.995952, -0.0276707,  0.0855242,
     #     -0.0407584,   0.708997,   0.704033]
+
 
 intrinsics:
   accel:
@@ -98,7 +105,7 @@ filters:
 
   voxelGrid:
     active: true
-    leafSize: [0.2 , 0.2, 0.2]
+    leafSize: [0.2, 0.2, 0.2]
     small_room_leafSize: [0.05, 0.05, 0.05]
     medium_room_leafSize: [0.1, 0.1, 0.1]
     button_trigger: false
@@ -120,7 +127,7 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
   MAX_NUM_ITERS: 100               # max num+1 of iterations of the KF (limits comp. load)
   MAX_NUM_MATCHES: 40000           # max num of matches to account for when computing Jacobians (limits comp. load)
   MAX_NUM_PC2MATCH: 20000        # max num of points to consider when matching with map (limits comp. load)
-  LIMITS: 3    #higher value faster convergence but less accurate
+  LIMITS: 0.01    #higher value faster convergence but less accurate
 
   # orig
   # MAX_NUM_ITERS: 2                # max num+1 of iterations of the KF (limits comp. load)
@@ -151,11 +158,17 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
 
   # If ↑ IMU Covariance → Consider ↓ Degeneracy to compensate
   # If ↓ IMU Covariance → Consider ↑ Degeneracy to compensate
+  # covariance:
+  #   gyro: 0.0001 
+  #   accel: 0.01
+  #   bias_gyro: 0.000001
+  #   bias_accel: 0.0001
+
   covariance:
-    gyro: 0.0001 
-    accel: 0.01
-    bias_gyro: 0.000001
-    bias_accel: 0.0001
+    gyro: 0.01 
+    accel: 0.1
+    bias_gyro: 0.00001
+    bias_accel: 0.001
 
 
 
@@ -173,17 +186,19 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
     # selective_method: false
     change_according_to_env: false   #works only if button trigge
     default:
-      # measurement_noise: 0.0001
+      # measurement_noise: 0.01
       # degeneracy_threshold: 0.01
-      measurement_noise: 0.0001
+      measurement_noise: 0.01
       degeneracy_threshold: 10.0
+      # measurement_noise: 0.01
+      # degeneracy_threshold: 10.0
       print_degeneracy_values: false
     small_room:
-      measurement_noise: 0.0001
-      degeneracy_threshold: 10.0
+      measurement_noise: 0.01
+      degeneracy_threshold: 0.05
       print_degeneracy_values: false
     medium_room:
-      measurement_noise: 0.0001
+      measurement_noise: 0.01
       degeneracy_threshold: 1.0
       print_degeneracy_values: false
 
@@ -200,6 +215,6 @@ save:
 
 
 offline_mode: true
-scan_path: "/media/inkers/Extreme SSD/18_MAR_ETV_OFFICE_HESAI/18_MAR_CP00826_FL2_TOWER_A_RUN_1_12_41_18"
+scan_path: "/media/inkers/Extreme SSD1/12_FEB_OZONE_HESAI3/12_FEB_CP00000_FL9_16_51_24"
 # scan_path: /media/inkers/Disk_2TB_SSD/08_FEB_CP00000_FL0_UKN_BELVEDAR_TEST_RUN_14_44_30
 # scan_path: /media/inkers/Disk_2TB_SSD/29_JAN_CP00000_FL6_ETV_HOTEL_R1_15_23_04

@@ -122,6 +122,8 @@ struct fast_limo::Config{
         double small_room_degeneracy_threshold;
         double medium_room_measurement_noise;
         double medium_room_degeneracy_threshold;
+        bool original_method;
+        bool selective_method;
     } esekf;
 
     // Flags

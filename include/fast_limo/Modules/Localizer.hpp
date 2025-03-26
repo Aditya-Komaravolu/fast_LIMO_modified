@@ -25,9 +25,12 @@
 #include "fast_limo/Objects/Plane.hpp"
 #include "fast_limo/Utils/Config.hpp"
 #include "fast_limo/Utils/Algorithms.hpp"
+#include "fast_limo/Utils/FrameDumper.hpp"
 #include <std_msgs/Header.h>  
 #include <std_msgs/String.h>  
-
+#include <ros/ros.h>
+#include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
 
 using namespace fast_limo;
 
@@ -161,6 +164,10 @@ class fast_limo::Localizer {
 
         double default_esekf_measurement_noise;
         double default_esekf_degeneracy_threshold;
+        Eigen::Matrix<double, 6, 1> curr_state_cov_eign_values;
+        // bool raw_pc_empty;
+        // bool imu_buffer_empty;
+        // bool imu_msg_empty;
         
     private:
         // Iterated Kalman Filter on Manifolds (FASTLIOv2)
@@ -207,7 +214,7 @@ class fast_limo::Localizer {
         double gravity_;
 
         // Flags
-        bool imu_calibrated_;
+        bool imu_calibrated_ = false;
 
         // OpenMP max threads
         int num_threads_;
@@ -274,6 +281,13 @@ class fast_limo::Localizer {
         int deskew_size;                        // steps taken to deskew (FoV discretization)
         int propagated_size;                    // number of integrated states
 
+        std::shared_ptr<FrameDumper> frame_dumper_;
+        bool save_frames_ = false; // Set to false if you don't want to save frames by default
+
+        Eigen::Vector3f initial_position_;
+        Eigen::Matrix3f initial_rotation_;
+        visualization_msgs::Marker ground_plane_marker_;
+
     // FUNCTIONS
 
     public:
@@ -319,6 +333,9 @@ class fast_limo::Localizer {
         void propagateImu(double t1, double t2);
         void set_voxel_leaf_size(float leaf_size);
         fast_limo::Config& get_config();
+
+        Eigen::Vector3f getInitialPosition() const { return initial_position_; }
+        Eigen::Matrix3f getInitialRotation() const { return initial_rotation_; }
 
     private:
         void init_iKFoM();

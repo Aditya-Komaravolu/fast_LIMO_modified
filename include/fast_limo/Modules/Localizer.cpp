@@ -16,6 +16,7 @@
  */
 
 #include "fast_limo/Modules/Localizer.hpp"
+#include "fast_limo/Utils/FrameDumper.hpp"
 
 // class fast_limo::Localizer
     // public
@@ -32,6 +33,7 @@
             this->final_scan     = pcl::PointCloud<PointType>::Ptr (boost::make_shared<pcl::PointCloud<PointType>>());
             this->accumulated_cloud = boost::make_shared<pcl::PointCloud<PointType>>();
             this->accumulated_downsampled_cloud = boost::make_shared<pcl::PointCloud<PointType>>();
+            frame_dumper_ = std::make_shared<FrameDumper>(std::string(ROOT_DIR)+"/frame_dumps");
         }
 
         void Localizer::update_accumulated_pointcloud(pcl::PointCloud<PointType>::Ptr new_cloud, pcl::PointCloud<PointType>::Ptr new_downsampled_cloud) {
@@ -143,6 +145,8 @@
             this->default_esekf_measurement_noise = config.esekf.measurement_noise;
             this->default_esekf_degeneracy_threshold = config.esekf.degeneracy_threshold;  
 
+            this->curr_state_cov_eign_values = Eigen::Matrix<double, 6, 1>::Zero();
+
             // Avoid unnecessary warnings from PCL
             pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
 
@@ -151,6 +155,9 @@
                 this->imu_calibrated_ = true;
                 this->init_iKFoM_state();
             }
+
+            // this->raw_pc_empty = false;
+            // this->imu_buffer_empty = false;
 
             // Calibration time
             this->imu_calib_time_ = config.imu_calib_time;
@@ -468,6 +475,7 @@
             if(raw_pc->points.size() < 1){
                 std::cout << "FAST_LIMO::Raw PointCloud is empty!\n";
                 this->sync_status = false;
+                // this->raw_pc_empty = true;
                 return;
             }
 
@@ -477,8 +485,9 @@
             }
 
             if(this->imu_buffer.empty()){
-                std::cout << "FAST_LIMO::IMU buffer is empty!\n";
+                std::cerr << "FAST_LIMO::IMU buffer is empty!\n";
                 this->sync_status = false;
+                // this->imu_buffer_empty = true;
                 return;
             }
 
@@ -491,10 +500,11 @@
 
                 if (imu_queue_finished) {
                     std::cout << stream.str() << std::endl;
+                    this->sync_status = false;
+                    // this->imu_msg_empty = true;
+                    this->scan_finished = true; 
+                    return;
                 }
-                this->sync_status = false;
-                this->scan_finished = true; 
-                return;
             }   
 
             this->last_timestamp_lidar = time_stamp;
@@ -613,6 +623,12 @@
                 input_pc->points.push_back(it->value());
             }
 
+            pcl::PointCloud<PointType>::Ptr raw_pc_shared (boost::make_shared<pcl::PointCloud<PointType>>());
+            // for (auto it = raw_pc->points.begin(); it != raw_pc->points.end(); it++) {
+            //     raw_pc_shared->points.push_back(it->value());
+            // }
+            raw_pc_shared = raw_pc;
+
             if(this->config.debug) // debug only
                 this->original_scan = boost::make_shared<pcl::PointCloud<PointType>>(*input_pc); // LiDAR frame
 
@@ -642,6 +658,7 @@
                 // this->_iKFoM.update_iterated_dyn_share_modified(0.001 /*LiDAR noise*/, 5.0/*Degeneracy threshold*/, 
                 //                                                 solve_time/*solving time elapsed*/, false/*print degeneracy values flag*/);
                 //button trigger
+                // if (this->config.esekf.original_method){
                 if (this->config.esekf.active){
                     if (this->config.esekf.change_according_to_env){
                         this->_iKFoM.update_iterated_dyn_share_modified(this->esekf_measurement_noise /*LiDAR noise*/, this->esekf_degeneracy_threshold /*Degeneracy threshold*/, 
@@ -653,11 +670,17 @@
 
                     }
                 } 
+                // if (this->config.esekf.selective_method){
                 else{
                     this->config.new_esekf=true;
-                    this->_iKFoM.update_iterated_dyn_share_modified_selective(this->config.esekf.measurement_noise /*LiDAR noise*/, this->config.esekf.degeneracy_threshold /*Degeneracy threshold*/, 
-                                                                                        solve_time/*solving time elapsed*/, this->config.esekf.print_degeneracy_values /*print degeneracy values flag*/);
-                    
+                    if (this->config.esekf.change_according_to_env){
+                        this->_iKFoM.update_iterated_dyn_share_modified_selective(this->esekf_measurement_noise /*LiDAR noise*/, this->esekf_degeneracy_threshold /*Degeneracy threshold*/, 
+                                                                                            solve_time/*solving time elapsed*/, this->curr_state_cov_eign_values, this->config.esekf.print_degeneracy_values /*print degeneracy values flag*/);
+                    }
+                    else{
+                        this->_iKFoM.update_iterated_dyn_share_modified_selective(this->config.esekf.measurement_noise /*LiDAR noise*/, this->config.esekf.degeneracy_threshold /*Degeneracy threshold*/, 
+                                                                                            solve_time/*solving time elapsed*/, this->curr_state_cov_eign_values, this->config.esekf.print_degeneracy_values /*print degeneracy values flag*/);
+                    }
                 }
                     /*NOTE: update_iterated_dyn_share_modified() will trigger the matching procedure ( see "use-ikfom.cpp" )
                     in order to update the measurement stage of the KF with the computed point-to-plane distances*/
@@ -703,6 +726,30 @@
                     map.add(mapped_scan, this->state, this->scan_stamp);
                 else 
                     map.add(mapped_scan, this->scan_stamp);
+
+                if (save_frames_) {
+                    // Save raw frame (deskewed but before registration)
+                    frame_dumper_->saveRawFrame(raw_pc_shared, time_stamp);
+                    
+                    // Get the current transform from the state
+                    State current_state = this->getWorldState();
+                    Eigen::Matrix4f current_transform = Eigen::Matrix4f::Identity();
+                    
+                    // Extract rotation matrix (q is the quaternion in the State object)
+                    current_transform.block<3,3>(0,0) = current_state.q.toRotationMatrix().cast<float>();
+                    
+                    // Extract position (p is the position vector in the State object)
+                    current_transform.block<3,1>(0,3) = current_state.p.cast<float>();
+                    
+                    // Save transformed raw cloud (raw cloud in global frame)
+                    frame_dumper_->saveRawToGlobalFrame(raw_pc_shared, current_transform, time_stamp);
+                    
+                    // Save the transform matrix
+                    frame_dumper_->saveTransformMatrix(current_transform, time_stamp);
+                    
+                    // Save the final processed cloud (this is after all processing)
+                    frame_dumper_->saveProcessedFrame(this->final_scan, time_stamp);
+                }
 
             }else
                 std::cout << "-------------- FAST_LIMO::NULL ITERATION --------------\n";
@@ -1029,6 +1076,15 @@
             init_P(21,21) = init_P(22,22) = 0.00001; 
             
             this->_iKFoM.change_P(init_P);
+            
+            // After state is initialized, store initial position and orientation
+            initial_position_ = this->state.p;
+            initial_rotation_ = this->state.q.toRotationMatrix();
+            imu_calibrated_ = true;
+            
+            std::cout << "IMU initialized, ground plane values set: " 
+                      << "pos=[" << initial_position_[0] << "," << initial_position_[1] << "," << initial_position_[2] << "]" 
+                      << std::endl;
         }
 
         IMUmeas Localizer::imu2baselink(IMUmeas& imu){
@@ -1611,19 +1667,6 @@
 
             std::cout << "|===================================================================|" << std::endl;
 
-            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
-                << "ESEKF Parameters " 
-                << "|" << std::endl;
-            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
-                << "Change according to env: " + std::to_string(this->config.esekf.change_according_to_env)
-                << "|" << std::endl;
-            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
-                << "Measurement noise: " + std::to_string(this->esekf_measurement_noise)
-                << "|" << std::endl;
-            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
-                << "Degeneracy threshold: " + std::to_string(this->esekf_degeneracy_threshold)
-                << "|" << std::endl;
-
             if(this->button_trigger){
                 std::cout << "|===================================================================|" << std::endl;
 
@@ -1650,9 +1693,29 @@
             }
             std::cout << "+-------------------------------------------------------------------+" << std::endl;
             std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
-                << "New ESEKF: " + std::string(this->config.new_esekf ? "True" : "False")
+                << "ESEKF Parameters " 
                 << "|" << std::endl;
-
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "Change according to env: " + std::to_string(this->config.esekf.change_according_to_env)
+                << "|" << std::endl;
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "New ESEKF : " + std::string(this->config.new_esekf ? "True" : "False")
+                << "|" << std::endl;
+            // std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+            //     << "Original ESEKF method: " + std::string(this->config.esekf.original_method ? "True" : "False")
+            //     << "|" << std::endl;
+            // std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+            //     << "Selective ESEKF method: " + std::string(this->config.esekf.selective_method ? "True" : "False")
+            //     << "|" << std::endl;
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "Measurement noise: " + std::to_string(this->esekf_measurement_noise)
+                << "|" << std::endl;
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "Degeneracy threshold: " + std::to_string(this->esekf_degeneracy_threshold)
+                << "|" << std::endl;
+            std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                << "Covariance Eigenvalues: " << this->curr_state_cov_eign_values(0) << " " << this->curr_state_cov_eign_values(1) << " " << this->curr_state_cov_eign_values(2) << " " << this->curr_state_cov_eign_values(3) << " " << this->curr_state_cov_eign_values(4) << " " << this->curr_state_cov_eign_values(5) << " "
+                << "|" << std::endl;
             std::cout << "+-------------------------------------------------------------------+" << std::endl;
             
 

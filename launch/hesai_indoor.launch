@@ -3,18 +3,13 @@
     <arg name="rviz" default="true"/>
     <arg name="base_path" default="$(find fast_limo)"/>
 
-    <node pkg="rviz" name="rviz_limo" type="rviz" args="-d $(find fast_limo)/config/rviz/limo.rviz" if="$(arg rviz)"/>
-
     <node pkg="fast_limo" type="fast_limo_multi_exec" name="fast_limo" output="screen" >
         <!-- <rosparam file="$(find fast_limo)/config/hesai.yaml" /> -->
-        <!-- <rosparam file="$(find fast_limo)/config/hesai_stable_v1.yaml" /> -->
-        <rosparam file="$(find fast_limo)/config/hesai_stable_v2.yaml" />
+        <rosparam file="$(find fast_limo)/config/hesai_stable_v1_indoor.yaml" />
         <!-- <rosparam file="$(find fast_limo)/config/hesai_unstable.yaml" /> -->
         <param name="base_path" value="$(arg base_path)"/>
     </node>
 
-    <!-- add detailed debug and error trace -->
-    <launch-prefix>gdb -ex run --args</launch-prefix>
+    <node pkg="rviz" name="rviz_limo" type="rviz" args="-d $(find fast_limo)/config/rviz/limo.rviz" if="$(arg rviz)"/>
 
-    
 </launch>

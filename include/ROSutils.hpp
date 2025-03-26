@@ -221,4 +221,42 @@ visualization_msgs::MarkerArray getMatchesMarker(Matches& matches, std::string f
     return m_array;
 }
 
+visualization_msgs::Marker getGroundPlaneMarker(const Eigen::Vector3f& position, const Eigen::Matrix3f& rotation) {
+    visualization_msgs::Marker m;
+
+    m.ns = "fast_limo";
+    m.id = 0;
+    m.type = visualization_msgs::Marker::CUBE;
+    m.action = visualization_msgs::Marker::ADD;
+
+    // Set color - semi-transparent blue
+    m.color.r = 0.0f;
+    m.color.g = 0.5f;
+    m.color.b = 1.0f;
+    m.color.a = 0.8f;  // More transparent to see through it
+
+    m.lifetime = ros::Duration(0);
+    m.header.frame_id = "map";
+    m.header.stamp = ros::Time::now();
+
+    // Convert rotation matrix to quaternion
+    Eigen::Quaternionf q(rotation);
+    m.pose.orientation.x = q.x();
+    m.pose.orientation.y = q.y();
+    m.pose.orientation.z = q.z();
+    m.pose.orientation.w = q.w();
+
+    // Set scale - wide and thin
+    m.scale.x = 200.0;  // 50m wide (larger than before)
+    m.scale.y = 200.0;  // 50m long
+    m.scale.z = 0.02;  // Very thin
+
+    // Position slightly below the starting position
+    m.pose.position.x = position[0];
+    m.pose.position.y = position[1];
+    m.pose.position.z = position[2] - 0.2;  // 5cm below
+
+    return m;
+}
+
 }
