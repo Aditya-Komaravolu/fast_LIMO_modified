@@ -172,6 +172,359 @@
                 // this->cpu_times.set_capacity(1000);
                 // this->cpu_percents.set_capacity(1000);
             }
+
+            if (cfg.loop_closure.active) {
+                loop_closure_ = std::make_shared<LoopClosure>();
+                loop_closure_->init(cfg);
+                loop_closure_enabled_ = true;
+                loop_corrected_cloud_ = pcl::PointCloud<PointType>::Ptr(new pcl::PointCloud<PointType>());
+            }
+        }
+
+        void Localizer::updatePointCloud(pcl::PointCloud<PointType>::Ptr& raw_pc, double time_stamp){
+
+            auto start_time = chrono::system_clock::now();
+
+            if(raw_pc->points.size() < 1){
+                std::cout << "FAST_LIMO::Raw PointCloud is empty!\n";
+                this->sync_status = false;
+                // this->raw_pc_empty = true;
+                return;
+            }
+
+            if(!this->imu_calibrated_){
+                // this->sync_status = false;
+                return;
+            }
+
+            if(this->imu_buffer.empty()){
+                std::cerr << "FAST_LIMO::IMU buffer is empty!\n";
+                this->sync_status = false;
+                // this->imu_buffer_empty = true;
+                return;
+            }
+
+            if (this->last_timestamp_imu < this->last_timestamp_lidar){
+
+                bool imu_queue_finished = (ros::Time::now().toSec() - this->last_imu_processed_time) > 60;
+                std::stringstream stream;
+                stream << std::fixed << std::setprecision(10) << "imu_queue not pushed for 60secs, marking imu queue as finished"
+                    << " last_imu_processed_time: " << this->last_imu_processed_time << " , current_time: " << ros::Time::now().toSec();
+
+                if (imu_queue_finished) {
+                    std::cout << stream.str() << std::endl;
+                    this->sync_status = false;
+                    // this->imu_msg_empty = true;
+                    this->scan_finished = true; 
+                    return;
+                }
+            }   
+
+            this->last_timestamp_lidar = time_stamp;
+
+            //change leafsize from buffer if button_trigger is enabled
+            if(this->button_trigger){
+                //if enbaled
+                if (!this->env_buffer.empty() && this->env_buffer.front()->header.stamp.toSec() < time_stamp){
+                    //update the threshold values
+                    //update the voxel size and down sample size
+
+                    auto threshold_values = this->env_buffer.front();
+                    auto leafsize = threshold_values->leafSize;
+                    auto env_state = threshold_values->env;
+                    auto local_mapping = threshold_values->localmapping;
+                    auto bb_size = threshold_values->ikdtree_bb_size;
+                    auto bb_range = threshold_values->ikdtree_bb_range;
+                    auto planar_threshold = threshold_values->planar_threshold;
+                    auto cov_gyro = threshold_values->cov_gyro;
+                    auto cov_acc = threshold_values->cov_acc;
+                    auto cov_bias_gyro = threshold_values->cov_bias_gyro;
+                    auto cov_bias_acc = threshold_values->cov_bias_acc;
+                    auto esekf_measurement_noise = threshold_values->esekf_measurement_noise;
+                    auto esekf_degeneracy_threshold = threshold_values->esekf_degeneracy_threshold;
+                    
+
+                    if (this->global_env_state == "None"){
+                        this->global_env_state = env_state;
+                        //env changed
+                        this->voxel_filter.setLeafSize(leafsize[0], leafsize[1], leafsize[2]);
+
+                        //print in green
+                        // std::cout << "\033[1;32mEnvironment CHANGED: " << threshold_values->env << "\033[0m" << std::endl;
+                        // std::cout << "\033[1;32mLEAF SIZE set to: ";
+                        // for (float size : leafsize) {
+                        //     std::cout << size << " ";
+                        // }
+                        // std::cout << "\033[0m" << std::endl;
+                        
+                    }
+                    else{
+                        if (env_state != this->global_env_state){
+                            this->global_env_state = env_state;
+                            //env changed
+                            this->voxel_filter.setLeafSize(leafsize[0], leafsize[1], leafsize[2]);
+
+                            if (this->config.ikfom.mapping.ikdtree.dynamic_bb){
+                                this->config.ikfom.mapping.ikdtree.cube_size = bb_size;
+                                this->config.ikfom.mapping.ikdtree.rm_range = bb_range; 
+                            }
+                            if (this->config.ikfom.mapping.dynamic_mapping){
+                                this->config.ikfom.mapping.local_mapping = local_mapping;
+                            }
+
+                            if (this->config.ikfom.mapping.change_planar_threshold){
+                                this->config.ikfom.mapping.PLANE_THRESHOLD = planar_threshold;
+                            }
+
+                            if (this->config.ikfom.change_according_to_env){
+                                this->config.ikfom.cov_gyro = cov_gyro;
+                                this->config.ikfom.cov_acc = cov_acc;
+                                this->config.ikfom.cov_bias_gyro = cov_bias_gyro;
+                                this->config.ikfom.cov_bias_acc = cov_bias_acc;
+                            }
+
+                            if (this->config.esekf.change_according_to_env){
+                                this->esekf_measurement_noise = esekf_measurement_noise;
+                                this->esekf_degeneracy_threshold = esekf_degeneracy_threshold;
+                            }
+                        }
+                    }
+                    env_buffer.pop_front();
+
+                }
+            }
+
+            // Remove NaNs
+            std::vector<int> idx;
+            raw_pc->is_dense = false;
+            pcl::removeNaNFromPointCloud(*raw_pc, *raw_pc, idx);
+
+            // Crop Box Filter (1 m^2)
+            if(this->config.filters.crop_active){
+                this->crop_filter.setInputCloud(raw_pc);
+                this->crop_filter.filter(*raw_pc);
+            }
+
+            // Distance & Time Rate filters
+            static float min_dist = static_cast<float>(this->config.filters.min_dist);
+            static int rate_value = this->config.filters.rate_value;
+            std::function<bool(boost::range::index_value<PointType&, long>)> filter_f;
+
+
+            if (this->config.filters.filter_points.active){
+                filter_f = [this](boost::range::index_value<PointType&, long> p)
+                    { return (Eigen::Vector3f(p.value().x, p.value().y, p.value().z).norm() < this->config.filters.filter_points.max_filter_distance) &&
+                                this->isInRange(p.value()); };
+            }
+            
+            else if(this->config.filters.dist_active && this->config.filters.rate_active){
+                filter_f = [this](boost::range::index_value<PointType&, long> p)
+                    { return (Eigen::Vector3f(p.value().x, p.value().y, p.value().z).norm() > min_dist)
+                                && (p.index()%rate_value == 0) && this->isInRange(p.value()); };
+            }
+            else if(this->config.filters.dist_active){
+                filter_f = [this](boost::range::index_value<PointType&, long> p)
+                    { return (Eigen::Vector3f(p.value().x, p.value().y, p.value().z).norm() > min_dist) &&
+                                this->isInRange(p.value()); };
+            }
+            else if(this->config.filters.rate_active){
+                filter_f = [this](boost::range::index_value<PointType&, long> p)
+                    { return (p.index()%rate_value == 0) && this->isInRange(p.value()); };
+            }else{
+                filter_f = [this](boost::range::index_value<PointType&, long> p)
+                    { return this->isInRange(p.value()); };
+            }
+            auto filtered_pc = raw_pc->points 
+                        | boost::adaptors::indexed()
+                        | boost::adaptors::filtered(filter_f);
+
+            pcl::PointCloud<PointType>::Ptr input_pc (boost::make_shared<pcl::PointCloud<PointType>>());
+            for (auto it = filtered_pc.begin(); it != filtered_pc.end(); it++) {
+                input_pc->points.push_back(it->value());
+            }
+
+            pcl::PointCloud<PointType>::Ptr raw_pc_shared (boost::make_shared<pcl::PointCloud<PointType>>());
+            // for (auto it = raw_pc->points.begin(); it != raw_pc->points.end(); it++) {
+            //     raw_pc_shared->points.push_back(it->value());
+            // }
+            raw_pc_shared = raw_pc;
+
+            if(this->config.debug) // debug only
+                this->original_scan = boost::make_shared<pcl::PointCloud<PointType>>(*input_pc); // LiDAR frame
+
+            // Motion compensation
+            pcl::PointCloud<PointType>::Ptr deskewed_Xt2_pc_ (boost::make_shared<pcl::PointCloud<PointType>>());
+            deskewed_Xt2_pc_ = this->deskewPointCloud(input_pc, time_stamp);
+            /*NOTE: deskewed_Xt2_pc_ should be in base_link/body frame w.r.t last propagated state (Xt2) */
+
+            // Voxel Grid Filter
+            if (this->config.filters.voxel_active) { 
+                pcl::PointCloud<PointType>::Ptr current_scan_
+                    (boost::make_shared<pcl::PointCloud<PointType>>(*deskewed_Xt2_pc_));
+                this->voxel_filter.setInputCloud(current_scan_);
+                this->voxel_filter.filter(*current_scan_);
+                this->pc2match = current_scan_;
+            } else {
+                this->pc2match = deskewed_Xt2_pc_;
+            }
+
+            if(this->pc2match->points.size() > 1){
+
+                // iKFoM observation stage
+                this->mtx_ikfom.lock();
+
+                    // Update iKFoM measurements (after prediction)
+                double solve_time = 0.0;
+                // this->_iKFoM.update_iterated_dyn_share_modified(0.001 /*LiDAR noise*/, 5.0/*Degeneracy threshold*/, 
+                //                                                 solve_time/*solving time elapsed*/, false/*print degeneracy values flag*/);
+                //button trigger
+                // if (this->config.esekf.original_method){
+                if (this->config.esekf.active){
+                    if (this->config.esekf.change_according_to_env){
+                        this->_iKFoM.update_iterated_dyn_share_modified(this->esekf_measurement_noise /*LiDAR noise*/, this->esekf_degeneracy_threshold /*Degeneracy threshold*/, 
+                                                                        solve_time/*solving time elapsed*/, this->config.esekf.print_degeneracy_values /*print degeneracy values flag*/);
+                    }
+                    else{
+                        this->_iKFoM.update_iterated_dyn_share_modified(this->config.esekf.measurement_noise /*LiDAR noise*/, this->config.esekf.degeneracy_threshold /*Degeneracy threshold*/, 
+                                                                    solve_time/*solving time elapsed*/, this->config.esekf.print_degeneracy_values /*print degeneracy values flag*/);
+
+                    }
+                } 
+                // if (this->config.esekf.selective_method){
+                else{
+                    this->config.new_esekf=true;
+                    if (this->config.esekf.change_according_to_env){
+                        this->_iKFoM.update_iterated_dyn_share_modified_selective(this->esekf_measurement_noise /*LiDAR noise*/, this->esekf_degeneracy_threshold /*Degeneracy threshold*/, 
+                                                                                            solve_time/*solving time elapsed*/, this->curr_state_cov_eign_values, this->config.esekf.print_degeneracy_values /*print degeneracy values flag*/);
+                    }
+                    else{
+                        this->_iKFoM.update_iterated_dyn_share_modified_selective(this->config.esekf.measurement_noise /*LiDAR noise*/, this->config.esekf.degeneracy_threshold /*Degeneracy threshold*/, 
+                                                                                            solve_time/*solving time elapsed*/, this->curr_state_cov_eign_values, this->config.esekf.print_degeneracy_values /*print degeneracy values flag*/);
+                    }
+                }
+                    /*NOTE: update_iterated_dyn_share_modified() will trigger the matching procedure ( see "use-ikfom.cpp" )
+                    in order to update the measurement stage of the KF with the computed point-to-plane distances*/
+                
+                    // Get output state from iKFoM
+                fast_limo::State corrected_state = fast_limo::State(this->_iKFoM.get_x());
+
+                // Set estimated biases & gravity to constant
+                if(this->config.calibrate_gyro)  corrected_state.b.gyro  = this->state.b.gyro;
+                if(this->config.calibrate_accel) corrected_state.b.accel = this->state.b.accel;
+                if(this->config.gravity_align)   corrected_state.g       = this->state.g;
+
+                this->state      = corrected_state;
+                this->state.w    = this->last_imu.ang_vel;
+                this->state.a    = this->last_imu.lin_accel;
+
+                this->mtx_ikfom.unlock();
+
+                // Get estimated offset
+                this->extr.lidar2baselink_T = this->state.get_extr_RT();
+
+                // Transform deskewed pc 
+                    // Get deskewed scan to add to map
+                pcl::PointCloud<PointType>::Ptr mapped_scan (boost::make_shared<pcl::PointCloud<PointType>>());
+                pcl::transformPointCloud (*this->pc2match, *mapped_scan, this->state.get_RT());
+                /*NOTE: pc2match must be in base_link frame w.r.t Xt2 frame for this transform to work.
+                        mapped_scan is in world/global frame.
+                */
+
+                /*To DO:
+                    - mapped_scan --> segmentation of dynamic objects
+                */
+
+                    // Get final scan to output (in world/global frame)
+                pcl::transformPointCloud (*this->pc2match, *this->final_scan, this->state.get_RT()); // mapped_scan = final_scan (for now)
+
+                if(this->config.debug) // save final scan without voxel grid
+                    pcl::transformPointCloud (*deskewed_Xt2_pc_, *this->final_raw_scan, this->state.get_RT());
+
+                // Add scan to map
+                fast_limo::Mapper& map = fast_limo::Mapper::getInstance();
+                if(this->config.ikfom.mapping.local_mapping)
+                    map.add(mapped_scan, this->state, this->scan_stamp);
+                else 
+                    map.add(mapped_scan, this->scan_stamp);
+
+                if (save_frames_) {
+                    // Save raw frame (deskewed but before registration)
+                    frame_dumper_->saveRawFrame(raw_pc_shared, time_stamp);
+                    
+                    // Get the current transform from the state
+                    State current_state = this->getWorldState();
+                    Eigen::Matrix4f current_transform = Eigen::Matrix4f::Identity();
+                    
+                    // Extract rotation matrix (q is the quaternion in the State object)
+                    current_transform.block<3,3>(0,0) = current_state.q.toRotationMatrix().cast<float>();
+                    
+                    // Extract position (p is the position vector in the State object)
+                    current_transform.block<3,1>(0,3) = current_state.p.cast<float>();
+                    
+                    // Save transformed raw cloud (raw cloud in global frame)
+                    frame_dumper_->saveRawToGlobalFrame(raw_pc_shared, current_transform, time_stamp);
+                    
+                    // Save the transform matrix
+                    frame_dumper_->saveTransformMatrix(current_transform, time_stamp);
+                    
+                    // Save the final processed cloud (this is after all processing)
+                    frame_dumper_->saveProcessedFrame(this->final_scan, time_stamp);
+                }
+
+            }else
+                std::cout << "-------------- FAST_LIMO::NULL ITERATION --------------\n";
+
+            auto end_time = chrono::system_clock::now();
+            elapsed_time = end_time - start_time;
+
+            if(this->config.verbose){
+                // fill stats
+                if(this->prev_scan_stamp > 0.0) this->lidar_rates.push_front( 1. / (this->scan_stamp - this->prev_scan_stamp) );
+                if(calibrating > 0) this->cpu_times.push_front(elapsed_time.count());
+                else this->cpu_times.push_front(0.0);
+                
+                if(calibrating < UCHAR_MAX) calibrating++;
+
+                // debug thread
+                this->debug_thread = std::thread( &Localizer::debugVerbose, this );
+                this->debug_thread.detach();
+            }
+
+            this->prev_scan_stamp = this->scan_stamp;
+
+            // Assuming `final_scan` is the final processed point cloud
+            update_accumulated_pointcloud(final_raw_scan, final_scan);
+
+            // this->imu_buffer.pop_back();
+            // this->propagated_buffer.pop_back();
+            this->sync_status = true;
+
+            // After successful scan processing, add to loop closure
+            if (loop_closure_enabled_ && this->final_scan->points.size() > 0) {
+                State current_state = getWorldState();
+                loop_closure_->addKeyFrame(current_state, this->final_scan);
+                
+                // Get corrected point cloud if loop closure has been detected
+                loop_corrected_cloud_ = loop_closure_->correctPointCloud(this->final_scan, time_stamp);
+                
+                // Create corrected odometry message
+                State corrected_state = current_state;
+                if (!loop_closure_->getCorrectedPoses().empty()) {
+                    // Apply correction to current state
+                    Eigen::Matrix4f correction = loop_closure_->getCorrection(time_stamp);
+                    Eigen::Matrix4f original_pose = poseToMatrix(current_state);
+                    Eigen::Matrix4f corrected_pose = correction * original_pose;
+                    
+                    corrected_state = matrixToPose(corrected_pose, time_stamp);
+                }
+                
+                // Convert to ROS odometry message
+                nav_msgs::Odometry odom_msg;
+                std::vector<double> cov_pose = getPoseCovariance();
+                std::vector<double> cov_twist = getTwistCovariance();
+                tf_limo::fromLimoToROS(corrected_state, cov_pose, cov_twist, odom_msg);
+                loop_corrected_odom_ = odom_msg;
+            }
         }
 
         pcl::PointCloud<PointType>::Ptr Localizer::get_pointcloud(){
@@ -467,318 +820,6 @@
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
         /////////////////////////////////           Principal callbacks/threads        /////////////////////////////////////////////////
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-        void Localizer::updatePointCloud(pcl::PointCloud<PointType>::Ptr& raw_pc, double time_stamp){
-
-            auto start_time = chrono::system_clock::now();
-
-            if(raw_pc->points.size() < 1){
-                std::cout << "FAST_LIMO::Raw PointCloud is empty!\n";
-                this->sync_status = false;
-                // this->raw_pc_empty = true;
-                return;
-            }
-
-            if(!this->imu_calibrated_){
-                // this->sync_status = false;
-                return;
-            }
-
-            if(this->imu_buffer.empty()){
-                std::cerr << "FAST_LIMO::IMU buffer is empty!\n";
-                this->sync_status = false;
-                // this->imu_buffer_empty = true;
-                return;
-            }
-
-            if (this->last_timestamp_imu < this->last_timestamp_lidar){
-
-                bool imu_queue_finished = (ros::Time::now().toSec() - this->last_imu_processed_time) > 60;
-                std::stringstream stream;
-                stream << std::fixed << std::setprecision(10) << "imu_queue not pushed for 60secs, marking imu queue as finished"
-                    << " last_imu_processed_time: " << this->last_imu_processed_time << " , current_time: " << ros::Time::now().toSec();
-
-                if (imu_queue_finished) {
-                    std::cout << stream.str() << std::endl;
-                    this->sync_status = false;
-                    // this->imu_msg_empty = true;
-                    this->scan_finished = true; 
-                    return;
-                }
-            }   
-
-            this->last_timestamp_lidar = time_stamp;
-
-            //change leafsize from buffer if button_trigger is enabled
-            if(this->button_trigger){
-                //if enbaled
-                if (!this->env_buffer.empty() && this->env_buffer.front()->header.stamp.toSec() < time_stamp){
-                    //update the threshold values
-                    //update the voxel size and down sample size
-
-                    auto threshold_values = this->env_buffer.front();
-                    auto leafsize = threshold_values->leafSize;
-                    auto env_state = threshold_values->env;
-                    auto local_mapping = threshold_values->localmapping;
-                    auto bb_size = threshold_values->ikdtree_bb_size;
-                    auto bb_range = threshold_values->ikdtree_bb_range;
-                    auto planar_threshold = threshold_values->planar_threshold;
-                    auto cov_gyro = threshold_values->cov_gyro;
-                    auto cov_acc = threshold_values->cov_acc;
-                    auto cov_bias_gyro = threshold_values->cov_bias_gyro;
-                    auto cov_bias_acc = threshold_values->cov_bias_acc;
-                    auto esekf_measurement_noise = threshold_values->esekf_measurement_noise;
-                    auto esekf_degeneracy_threshold = threshold_values->esekf_degeneracy_threshold;
-                    
-
-                    if (this->global_env_state == "None"){
-                        this->global_env_state = env_state;
-                        //env changed
-                        this->voxel_filter.setLeafSize(leafsize[0], leafsize[1], leafsize[2]);
-
-                        //print in green
-                        // std::cout << "\033[1;32mEnvironment CHANGED: " << threshold_values->env << "\033[0m" << std::endl;
-                        // std::cout << "\033[1;32mLEAF SIZE set to: ";
-                        // for (float size : leafsize) {
-                        //     std::cout << size << " ";
-                        // }
-                        // std::cout << "\033[0m" << std::endl;
-                        
-                    }
-                    else{
-                        if (env_state != this->global_env_state){
-                            this->global_env_state = env_state;
-                            //env changed
-                            this->voxel_filter.setLeafSize(leafsize[0], leafsize[1], leafsize[2]);
-
-                            if (this->config.ikfom.mapping.ikdtree.dynamic_bb){
-                                this->config.ikfom.mapping.ikdtree.cube_size = bb_size;
-                                this->config.ikfom.mapping.ikdtree.rm_range = bb_range; 
-                            }
-                            if (this->config.ikfom.mapping.dynamic_mapping){
-                                this->config.ikfom.mapping.local_mapping = local_mapping;
-                            }
-
-                            if (this->config.ikfom.mapping.change_planar_threshold){
-                                this->config.ikfom.mapping.PLANE_THRESHOLD = planar_threshold;
-                            }
-
-                            if (this->config.ikfom.change_according_to_env){
-                                this->config.ikfom.cov_gyro = cov_gyro;
-                                this->config.ikfom.cov_acc = cov_acc;
-                                this->config.ikfom.cov_bias_gyro = cov_bias_gyro;
-                                this->config.ikfom.cov_bias_acc = cov_bias_acc;
-                            }
-
-                            if (this->config.esekf.change_according_to_env){
-                                this->esekf_measurement_noise = esekf_measurement_noise;
-                                this->esekf_degeneracy_threshold = esekf_degeneracy_threshold;
-                            }
-                        }
-                    }
-                    env_buffer.pop_front();
-
-                }
-            }
-
-            // Remove NaNs
-            std::vector<int> idx;
-            raw_pc->is_dense = false;
-            pcl::removeNaNFromPointCloud(*raw_pc, *raw_pc, idx);
-
-            // Crop Box Filter (1 m^2)
-            if(this->config.filters.crop_active){
-                this->crop_filter.setInputCloud(raw_pc);
-                this->crop_filter.filter(*raw_pc);
-            }
-
-            // Distance & Time Rate filters
-            static float min_dist = static_cast<float>(this->config.filters.min_dist);
-            static int rate_value = this->config.filters.rate_value;
-            std::function<bool(boost::range::index_value<PointType&, long>)> filter_f;
-            
-            if(this->config.filters.dist_active && this->config.filters.rate_active){
-                filter_f = [this](boost::range::index_value<PointType&, long> p)
-                    { return (Eigen::Vector3f(p.value().x, p.value().y, p.value().z).norm() > min_dist)
-                                && (p.index()%rate_value == 0) && this->isInRange(p.value()); };
-            }
-            else if(this->config.filters.dist_active){
-                filter_f = [this](boost::range::index_value<PointType&, long> p)
-                    { return (Eigen::Vector3f(p.value().x, p.value().y, p.value().z).norm() > min_dist) &&
-                                this->isInRange(p.value()); };
-            }
-            else if(this->config.filters.rate_active){
-                filter_f = [this](boost::range::index_value<PointType&, long> p)
-                    { return (p.index()%rate_value == 0) && this->isInRange(p.value()); };
-            }else{
-                filter_f = [this](boost::range::index_value<PointType&, long> p)
-                    { return this->isInRange(p.value()); };
-            }
-            auto filtered_pc = raw_pc->points 
-                        | boost::adaptors::indexed()
-                        | boost::adaptors::filtered(filter_f);
-
-            pcl::PointCloud<PointType>::Ptr input_pc (boost::make_shared<pcl::PointCloud<PointType>>());
-            for (auto it = filtered_pc.begin(); it != filtered_pc.end(); it++) {
-                input_pc->points.push_back(it->value());
-            }
-
-            pcl::PointCloud<PointType>::Ptr raw_pc_shared (boost::make_shared<pcl::PointCloud<PointType>>());
-            // for (auto it = raw_pc->points.begin(); it != raw_pc->points.end(); it++) {
-            //     raw_pc_shared->points.push_back(it->value());
-            // }
-            raw_pc_shared = raw_pc;
-
-            if(this->config.debug) // debug only
-                this->original_scan = boost::make_shared<pcl::PointCloud<PointType>>(*input_pc); // LiDAR frame
-
-            // Motion compensation
-            pcl::PointCloud<PointType>::Ptr deskewed_Xt2_pc_ (boost::make_shared<pcl::PointCloud<PointType>>());
-            deskewed_Xt2_pc_ = this->deskewPointCloud(input_pc, time_stamp);
-            /*NOTE: deskewed_Xt2_pc_ should be in base_link/body frame w.r.t last propagated state (Xt2) */
-
-            // Voxel Grid Filter
-            if (this->config.filters.voxel_active) { 
-                pcl::PointCloud<PointType>::Ptr current_scan_
-                    (boost::make_shared<pcl::PointCloud<PointType>>(*deskewed_Xt2_pc_));
-                this->voxel_filter.setInputCloud(current_scan_);
-                this->voxel_filter.filter(*current_scan_);
-                this->pc2match = current_scan_;
-            } else {
-                this->pc2match = deskewed_Xt2_pc_;
-            }
-
-            if(this->pc2match->points.size() > 1){
-
-                // iKFoM observation stage
-                this->mtx_ikfom.lock();
-
-                    // Update iKFoM measurements (after prediction)
-                double solve_time = 0.0;
-                // this->_iKFoM.update_iterated_dyn_share_modified(0.001 /*LiDAR noise*/, 5.0/*Degeneracy threshold*/, 
-                //                                                 solve_time/*solving time elapsed*/, false/*print degeneracy values flag*/);
-                //button trigger
-                // if (this->config.esekf.original_method){
-                if (this->config.esekf.active){
-                    if (this->config.esekf.change_according_to_env){
-                        this->_iKFoM.update_iterated_dyn_share_modified(this->esekf_measurement_noise /*LiDAR noise*/, this->esekf_degeneracy_threshold /*Degeneracy threshold*/, 
-                                                                        solve_time/*solving time elapsed*/, this->config.esekf.print_degeneracy_values /*print degeneracy values flag*/);
-                    }
-                    else{
-                        this->_iKFoM.update_iterated_dyn_share_modified(this->config.esekf.measurement_noise /*LiDAR noise*/, this->config.esekf.degeneracy_threshold /*Degeneracy threshold*/, 
-                                                                    solve_time/*solving time elapsed*/, this->config.esekf.print_degeneracy_values /*print degeneracy values flag*/);
-
-                    }
-                } 
-                // if (this->config.esekf.selective_method){
-                else{
-                    this->config.new_esekf=true;
-                    if (this->config.esekf.change_according_to_env){
-                        this->_iKFoM.update_iterated_dyn_share_modified_selective(this->esekf_measurement_noise /*LiDAR noise*/, this->esekf_degeneracy_threshold /*Degeneracy threshold*/, 
-                                                                                            solve_time/*solving time elapsed*/, this->curr_state_cov_eign_values, this->config.esekf.print_degeneracy_values /*print degeneracy values flag*/);
-                    }
-                    else{
-                        this->_iKFoM.update_iterated_dyn_share_modified_selective(this->config.esekf.measurement_noise /*LiDAR noise*/, this->config.esekf.degeneracy_threshold /*Degeneracy threshold*/, 
-                                                                                            solve_time/*solving time elapsed*/, this->curr_state_cov_eign_values, this->config.esekf.print_degeneracy_values /*print degeneracy values flag*/);
-                    }
-                }
-                    /*NOTE: update_iterated_dyn_share_modified() will trigger the matching procedure ( see "use-ikfom.cpp" )
-                    in order to update the measurement stage of the KF with the computed point-to-plane distances*/
-                
-                    // Get output state from iKFoM
-                fast_limo::State corrected_state = fast_limo::State(this->_iKFoM.get_x());
-
-                // Set estimated biases & gravity to constant
-                if(this->config.calibrate_gyro)  corrected_state.b.gyro  = this->state.b.gyro;
-                if(this->config.calibrate_accel) corrected_state.b.accel = this->state.b.accel;
-                if(this->config.gravity_align)   corrected_state.g       = this->state.g;
-
-                this->state      = corrected_state;
-                this->state.w    = this->last_imu.ang_vel;
-                this->state.a    = this->last_imu.lin_accel;
-
-                this->mtx_ikfom.unlock();
-
-                // Get estimated offset
-                this->extr.lidar2baselink_T = this->state.get_extr_RT();
-
-                // Transform deskewed pc 
-                    // Get deskewed scan to add to map
-                pcl::PointCloud<PointType>::Ptr mapped_scan (boost::make_shared<pcl::PointCloud<PointType>>());
-                pcl::transformPointCloud (*this->pc2match, *mapped_scan, this->state.get_RT());
-                /*NOTE: pc2match must be in base_link frame w.r.t Xt2 frame for this transform to work.
-                        mapped_scan is in world/global frame.
-                */
-
-                /*To DO:
-                    - mapped_scan --> segmentation of dynamic objects
-                */
-
-                    // Get final scan to output (in world/global frame)
-                pcl::transformPointCloud (*this->pc2match, *this->final_scan, this->state.get_RT()); // mapped_scan = final_scan (for now)
-
-                if(this->config.debug) // save final scan without voxel grid
-                    pcl::transformPointCloud (*deskewed_Xt2_pc_, *this->final_raw_scan, this->state.get_RT());
-
-                // Add scan to map
-                fast_limo::Mapper& map = fast_limo::Mapper::getInstance();
-                if(this->config.ikfom.mapping.local_mapping)
-                    map.add(mapped_scan, this->state, this->scan_stamp);
-                else 
-                    map.add(mapped_scan, this->scan_stamp);
-
-                if (save_frames_) {
-                    // Save raw frame (deskewed but before registration)
-                    frame_dumper_->saveRawFrame(raw_pc_shared, time_stamp);
-                    
-                    // Get the current transform from the state
-                    State current_state = this->getWorldState();
-                    Eigen::Matrix4f current_transform = Eigen::Matrix4f::Identity();
-                    
-                    // Extract rotation matrix (q is the quaternion in the State object)
-                    current_transform.block<3,3>(0,0) = current_state.q.toRotationMatrix().cast<float>();
-                    
-                    // Extract position (p is the position vector in the State object)
-                    current_transform.block<3,1>(0,3) = current_state.p.cast<float>();
-                    
-                    // Save transformed raw cloud (raw cloud in global frame)
-                    frame_dumper_->saveRawToGlobalFrame(raw_pc_shared, current_transform, time_stamp);
-                    
-                    // Save the transform matrix
-                    frame_dumper_->saveTransformMatrix(current_transform, time_stamp);
-                    
-                    // Save the final processed cloud (this is after all processing)
-                    frame_dumper_->saveProcessedFrame(this->final_scan, time_stamp);
-                }
-
-            }else
-                std::cout << "-------------- FAST_LIMO::NULL ITERATION --------------\n";
-
-            auto end_time = chrono::system_clock::now();
-            elapsed_time = end_time - start_time;
-
-            if(this->config.verbose){
-                // fill stats
-                if(this->prev_scan_stamp > 0.0) this->lidar_rates.push_front( 1. / (this->scan_stamp - this->prev_scan_stamp) );
-                if(calibrating > 0) this->cpu_times.push_front(elapsed_time.count());
-                else this->cpu_times.push_front(0.0);
-                
-                if(calibrating < UCHAR_MAX) calibrating++;
-
-                // debug thread
-                this->debug_thread = std::thread( &Localizer::debugVerbose, this );
-                this->debug_thread.detach();
-            }
-
-            this->prev_scan_stamp = this->scan_stamp;
-
-            // Assuming `final_scan` is the final processed point cloud
-            update_accumulated_pointcloud(final_raw_scan, final_scan);
-
-            // this->imu_buffer.pop_back();
-            // this->propagated_buffer.pop_back();
-            this->sync_status = true;
-        }
 
         void Localizer::updateIMU(IMUmeas& raw_imu){
 
@@ -1718,5 +1759,69 @@
                 << "|" << std::endl;
             std::cout << "+-------------------------------------------------------------------+" << std::endl;
             
+            std::cout << "|===================================================================|" << std::endl;
+            
+            // Add loop closure debug information
+            if (config.loop_closure.active && loop_closure_) {
+                std::cout << "+-------------------------------------------------------------------+" << std::endl;
+                std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                    << "Loop Closure Status" 
+                    << "|" << std::endl;
+                
+                latest_loop_detected_ = loop_closure_->wasLoopDetected();
+                total_loop_closures_ = loop_closure_->getTotalLoopClosures();
+                latest_loop_error_ = loop_closure_->getLatestLoopError();
+                latest_correction_magnitude_ = loop_closure_->getLatestCorrectionMagnitude();
+                keyframes_count_ = loop_closure_->getKeyframesCount();
+                floor_planes_detected_ = loop_closure_->getFloorPlanesCount();
+                
+                std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                    << "Loop closures detected: " + std::to_string(total_loop_closures_)
+                    << "|" << std::endl;
+                std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                    << "Loop detected recently: " + std::string(latest_loop_detected_ ? "YES" : "NO")
+                    << "|" << std::endl;
+                std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                    << "Latest loop error: " + std::to_string(latest_loop_error_) + " meters"
+                    << "|" << std::endl;
+                std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                    << "Average correction: " + std::to_string(latest_correction_magnitude_) + " meters"
+                    << "|" << std::endl;
+                std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                    << "Keyframes stored: " + std::to_string(keyframes_count_)
+                    << "|" << std::endl;
+                
+                if (config.loop_closure.use_floor_constraints) {
+                    std::cout << "| " << std::left << std::setfill(' ') << std::setw(66)
+                        << "Floor planes detected: " + std::to_string(floor_planes_detected_)
+                        << "|" << std::endl;
+                }
+            }
+            
+            std::cout << "+-------------------------------------------------------------------+" << std::endl;
 
+        }
+
+        pcl::PointCloud<PointType>::Ptr Localizer::get_loop_corrected_pointcloud() {
+            return loop_corrected_cloud_;
+        }
+
+        nav_msgs::Odometry Localizer::get_loop_corrected_odometry() {
+            return loop_corrected_odom_;
+        }
+
+        Eigen::Matrix4f Localizer::poseToMatrix(const State& pose) {
+            Eigen::Matrix4f matrix = Eigen::Matrix4f::Identity();
+            matrix.block<3,3>(0,0) = pose.q.toRotationMatrix();
+            matrix.block<3,1>(0,3) = pose.p;
+            return matrix;
+        }
+
+        State Localizer::matrixToPose(const Eigen::Matrix4f& matrix, double timestamp) {
+            State pose;
+            pose.time = timestamp;
+            pose.p = matrix.block<3,1>(0,3);
+            Eigen::Matrix3f rotation_matrix = matrix.block<3,3>(0,0);
+            pose.q = Eigen::Quaternionf(rotation_matrix);
+            return pose;
         }

@@ -15,6 +15,8 @@ ros::Publisher state_pub;
 
 // debugging publishers
 ros::Publisher orig_pub, desk_pub, match_pub, finalraw_pub, body_pub, map_bb_pub, match_points_pub;
+ros::Publisher ground_plane_pub;
+ros::Publisher floor_planes_pub;
 
 // output frames
 std::string world_frame, body_frame;
@@ -30,10 +32,72 @@ bool save_pcd_by_parts = false;
 bool flg_exit = false;
 
 // Add this with the other publisher declarations at the top
-ros::Publisher ground_plane_pub;
+// ros::Publisher ground_plane_pub;
 
 // Add a flag to track if we've published the ground plane
 bool ground_plane_published = false;
+
+// Add with other global declarations at the top of the file
+pcl::PointCloud<PointType>::Ptr accumulated_loop_corrected_cloud;
+
+// Loop closure namespace to hold our functionality
+namespace loop_closure {
+    static ros::Publisher cloud_pub;
+    static ros::Publisher odom_pub;
+    static ros::Publisher floor_planes_pub;
+    static std::string world_frame_id = "map";
+    static pcl::PointCloud<PointType>::Ptr accumulated_cloud;
+
+    // Initialize publishers
+    void init(ros::NodeHandle& nh, const std::string& world_frame) {
+        cloud_pub = nh.advertise<sensor_msgs::PointCloud2>("loop_corrected_cloud", 1);
+        odom_pub = nh.advertise<nav_msgs::Odometry>("loop_corrected_odom", 1);
+        floor_planes_pub = nh.advertise<visualization_msgs::MarkerArray>("floor_planes", 1);
+        world_frame_id = world_frame;
+        accumulated_cloud = pcl::PointCloud<PointType>::Ptr(new pcl::PointCloud<PointType>());
+    }
+
+    // Publish loop closure results
+    void publish(fast_limo::Localizer& localizer, const fast_limo::Config& config) {
+        if (config.loop_closure.active) {
+            // Publish loop-corrected point cloud
+            pcl::PointCloud<PointType>::Ptr loop_corrected_cloud = localizer.get_loop_corrected_pointcloud();
+            if (loop_corrected_cloud && !loop_corrected_cloud->empty()) {
+                sensor_msgs::PointCloud2 loop_cloud_msg;
+                pcl::toROSMsg(*loop_corrected_cloud, loop_cloud_msg);
+                loop_cloud_msg.header.frame_id = world_frame_id;
+                loop_cloud_msg.header.stamp = ros::Time::now();
+                cloud_pub.publish(loop_cloud_msg);
+                
+                // Accumulate the loop-corrected point cloud
+                *accumulated_cloud += *loop_corrected_cloud;
+            }
+            
+            // Publish loop-corrected odometry
+            nav_msgs::Odometry loop_odom = localizer.get_loop_corrected_odometry();
+            if (loop_odom.header.stamp.toSec() > 0) {
+                odom_pub.publish(loop_odom);
+            }
+            
+            // Publish detected floor planes if enabled
+            if (config.loop_closure.use_floor_constraints) {
+                std::vector<fast_limo::FloorPlaneConstraint> floor_constraints = 
+                    localizer.get_loop_closure_floor_constraints();
+                
+                if (!floor_constraints.empty()) {
+                    visualization_msgs::MarkerArray floor_markers = 
+                        visualize_limo::getFloorPlaneMarkers(floor_constraints, world_frame_id);
+                    floor_planes_pub.publish(floor_markers);
+                }
+            }
+        }
+    }
+    
+    // Get the accumulated loop-corrected point cloud
+    pcl::PointCloud<PointType>::Ptr getAccumulatedCloud() {
+        return accumulated_cloud;
+    }
+}
 
 // Service callback for setting voxel leaf size
 bool set_leaf_size_callback(fast_limo::manualTrigger::Request &req, fast_limo::manualTrigger::Response &res) {
@@ -138,6 +202,24 @@ void lidar_callback(const sensor_msgs::PointCloud2::ConstPtr& msg){
                  
         ground_plane_published = true;
     }
+
+    // Get config from localizer for loop closure
+    fast_limo::Config& config = loc.get_config();
+    
+    // For debug purposes - check for loop detections before publishing
+    bool loop_detected_now = false;
+    // if (config.loop_closure.active) {
+    //     loop_detected_now = loc.loop_closure_->wasLoopDetected();
+    // }
+    
+    loop_closure::publish(loc, config);
+    
+    // If loop detected, force a verbose debug print
+    // if (config.loop_closure.active && !loop_detected_now && loc.loop_closure_->wasLoopDetected()) {
+    //     if (config.verbose) {
+    //         loc.debugVerbose();
+    //     }
+    // }
 }
 
 void imu_callback(const sensor_msgs::Imu::ConstPtr& msg){
@@ -187,8 +269,8 @@ void save_pcd(){
 
         // Save the point cloud to a file
         pcl::PCDWriter pcd_writer;
-            pcd_writer.writeBinary(pcd_path, *cloud);
-            std::cout << "Saved the final point cloud to " << pcd_path << std::endl;
+        pcd_writer.writeBinary(pcd_path, *cloud);
+        std::cout << "Saved the final point cloud to " << pcd_path << std::endl;
     }
     
     if (config.save_skewed_pcd){
@@ -199,6 +281,20 @@ void save_pcd(){
         pcl::PCDWriter pcd_writer;
         pcd_writer.writeBinary(pcd_path, *cloud);
         std::cout << "Saved the final point cloud to " << pcd_path << std::endl;
+    }
+
+    // Save accumulated loop-corrected point cloud if loop closure is active
+    if (config.loop_closure.active) {
+        pcl::PointCloud<PointType>::Ptr loop_corrected_accumulated = loop_closure::getAccumulatedCloud();
+        if (loop_corrected_accumulated && !loop_corrected_accumulated->empty()) {
+            std::string pcd_path = base_path + "/PCD/loop_corrected_scans.pcd";
+            std::cout << "Saving loop-corrected point cloud to " << pcd_path << std::endl;
+            std::cout << "Loop-corrected point cloud size: " << loop_corrected_accumulated->size() << std::endl;
+            
+            pcl::PCDWriter pcd_writer;
+            pcd_writer.writeBinary(pcd_path, *loop_corrected_accumulated);
+            std::cout << "Saved the loop-corrected point cloud to " << pcd_path << std::endl;
+        }
     }
 }
 
@@ -247,6 +343,7 @@ bool save_pcd_by_parts_callback(){
     // res.message = "Saved pcd part" ;
     // return true;
 
+    return true;
 }
 
 bool break_pcd_on_service_callback(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res){
@@ -324,6 +421,9 @@ void load_config(ros::NodeHandle* nh_ptr, fast_limo::Config* config){
     nh_ptr->param<std::vector<float>>("intrinsics/gyro/bias",   config->intrinsics.gyro_bias,   {0.0, 0.0, 0.0});
     nh_ptr->param<std::vector<float>>("intrinsics/accel/sm",    config->intrinsics.imu_sm,      std::vector<float> (9, 0.0));
 
+    nh_ptr->param<bool>("filters/filter_points/active", config->filters.filter_points.active, false);
+    nh_ptr->param<float>("filters/filter_points/max_filter_distance", config->filters.filter_points.max_filter_distance, 10.0);
+
     nh_ptr->param<bool>("filters/cropBox/active",                config->filters.crop_active,   true);
     nh_ptr->param<std::vector<float>>("filters/cropBox/box/min", config->filters.cropBoxMin,    {-1.0, -1.0, -1.0});
     nh_ptr->param<std::vector<float>>("filters/cropBox/box/max", config->filters.cropBoxMax,    {1.0, 1.0, 1.0});
@@ -400,10 +500,10 @@ void load_config(ros::NodeHandle* nh_ptr, fast_limo::Config* config){
     // nh_ptr->param<bool>("iKFoM/esekf/original_method", config->esekf.original_method, false);
     // nh_ptr->param<bool>("iKFoM/esekf/selective_method", config->esekf.selective_method, false);
     //put condition that both methods cannot be true
-    if (config->esekf.original_method && config->esekf.selective_method){
-        ROS_ERROR("Both ESEKF methods cannot be true. Terminating ...");
-        ros::shutdown();
-    }
+    // if (config->esekf.original_method && config->esekf.selective_method){
+    //     ROS_ERROR("Both ESEKF methods cannot be true. Terminating ...");
+    //     ros::shutdown();
+    // }
     
     nh_ptr->param<bool>("iKFoM/esekf/change_according_to_env", config->esekf.change_according_to_env, false);
     nh_ptr->param<double>("iKFoM/esekf/default/measurement_noise", config->esekf.measurement_noise, 0.001);  
@@ -427,6 +527,14 @@ void load_config(ros::NodeHandle* nh_ptr, fast_limo::Config* config){
     nh_ptr->param<bool>("offline_mode", config->offline_mode, false);
 
     nh_ptr->param<std::string>("scan_path", config->data_path, "");
+
+    nh_ptr->param<bool>("loop_closure/active", config->loop_closure.active, false);
+    nh_ptr->param<float>("loop_closure/distance_threshold", config->loop_closure.distance_threshold, 100.0);
+    nh_ptr->param<float>("loop_closure/scan_match_threshold", config->loop_closure.scan_match_threshold, 0.3);
+    nh_ptr->param<int>("loop_closure/keyframe_interval", config->loop_closure.keyframe_interval, 100);
+    nh_ptr->param<int>("loop_closure/nearby_frames_to_skip", config->loop_closure.nearby_frames_to_skip, 100);
+    nh_ptr->param<float>("loop_closure/loop_weight", config->loop_closure.loop_weight, 100.0);
+    nh_ptr->param<float>("loop_closure/odometry_weight", config->loop_closure.odometry_weight, 1.0);
 
     double ikfom_limits;
     nh_ptr->param<double>("iKFoM/LIMITS", ikfom_limits, 1.e-3);
@@ -482,6 +590,11 @@ int main(int argc, char** argv) {
     ground_plane_pub = nh.advertise<visualization_msgs::Marker>("map/ground_plane", 1);
     ros::Publisher static_ground_pub = nh.advertise<visualization_msgs::Marker>("static_ground", 1, true);
 
+    // Add with other publishers
+    floor_planes_pub = nh.advertise<visualization_msgs::MarkerArray>("floor_planes", 1);
+
+    // Initialize loop closure publishers
+    loop_closure::init(nh, world_frame);
 
     // Set up fast_limo config
     loc.init(config);

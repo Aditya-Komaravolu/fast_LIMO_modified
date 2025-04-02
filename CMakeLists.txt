@@ -10,6 +10,10 @@ add_definitions(${PCL_DEFINITIONS})
 link_directories(${PCL_LIBRARY_DIRS})
 add_definitions(-DROOT_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/\")
 
+# Find OpenCV
+find_package(OpenCV REQUIRED)
+include_directories(${OpenCV_INCLUDE_DIRS})
+message("OpenCV version: ${OpenCV_VERSION}")
 
 message("PCL version: ${PCL_VERSION}")
 
@@ -55,7 +59,7 @@ catkin_package(
  INCLUDE_DIRS include
  LIBRARIES ${PROJECT_NAME}
  CATKIN_DEPENDS roscpp pcl_ros sensor_msgs geometry_msgs tf2 visualization_msgs nav_msgs
- DEPENDS EIGEN3 PCL
+ DEPENDS EIGEN3 PCL OPENCV
 )
 
 include_directories(
@@ -63,6 +67,7 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
   ${EIGEN3_INLCUDE_DIRS}
   ${PCL_INLCUDE_DIRS}
+  ${OpenCV_INCLUDE_DIRS}
 )
 
 # Not all machines have <cpuid.h> available
@@ -104,18 +109,28 @@ add_library(${PROJECT_NAME}
             include/fast_limo/Objects/Plane.cpp
             include/fast_limo/Objects/Match.cpp
             include/fast_limo/Utils/FrameDumper.cpp
+            src/Modules/LoopClosure.cpp
+            src/Modules/ScanContext.cpp
             )
 target_compile_options(${PROJECT_NAME} PRIVATE ${OpenMP_FLAGS})
-target_link_libraries(${PROJECT_NAME} ${PCL_LIBRARIES} ${OpenMP_LIBS} ikfom ikd_tree)
+target_link_libraries(${PROJECT_NAME} ${PCL_LIBRARIES} ${OpenMP_LIBS} ${OpenCV_LIBS} ikfom ikd_tree)
 
 # ROS execs
 add_executable(${PROJECT_NAME}_multi_exec
-              src/main.cpp
+               src/main.cpp
               )
 
 add_dependencies(${PROJECT_NAME}_multi_exec ${catkin_EXPORTED_TARGETS})
 
-target_link_libraries(${PROJECT_NAME}_multi_exec ${PROJECT_NAME} ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+target_link_libraries(${PROJECT_NAME}_multi_exec
+  ${PROJECT_NAME}
+  ${catkin_LIBRARIES}
+  ${PCL_LIBRARIES}
+  ${CERES_LIBRARIES}
+  ${OpenMP_LIBS}
+  ${OpenCV_LIBS}
+  g2o_core g2o_stuff g2o_types_slam3d g2o_solver_eigen g2o_solver_pcg
+)
 
 # Binaries
 install( TARGETS ${PROJECT_NAME}_multi_exec

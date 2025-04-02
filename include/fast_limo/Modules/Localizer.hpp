@@ -26,11 +26,14 @@
 #include "fast_limo/Utils/Config.hpp"
 #include "fast_limo/Utils/Algorithms.hpp"
 #include "fast_limo/Utils/FrameDumper.hpp"
+#include "ROSutils.hpp"
 #include <std_msgs/Header.h>  
 #include <std_msgs/String.h>  
 #include <ros/ros.h>
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
+#include <fast_limo/Modules/LoopClosure.hpp>
+#include <nav_msgs/Odometry.h>
 
 using namespace fast_limo;
 
@@ -288,6 +291,22 @@ class fast_limo::Localizer {
         Eigen::Matrix3f initial_rotation_;
         visualization_msgs::Marker ground_plane_marker_;
 
+        std::shared_ptr<LoopClosure> loop_closure_;
+        pcl::PointCloud<PointType>::Ptr loop_corrected_cloud_;
+        nav_msgs::Odometry loop_corrected_odom_;
+        bool loop_closure_enabled_ = false;
+
+        // Debug info for loop closures
+        bool latest_loop_detected_ = false;
+        int total_loop_closures_ = 0;
+        double latest_loop_error_ = 0.0;
+        double latest_correction_magnitude_ = 0.0;
+        int keyframes_count_ = 0;
+        int floor_planes_detected_ = 0;
+
+        Eigen::Matrix4f poseToMatrix(const State& pose);
+        State matrixToPose(const Eigen::Matrix4f& matrix, double timestamp);
+
     // FUNCTIONS
 
     public:
@@ -336,6 +355,16 @@ class fast_limo::Localizer {
 
         Eigen::Vector3f getInitialPosition() const { return initial_position_; }
         Eigen::Matrix3f getInitialRotation() const { return initial_rotation_; }
+
+        pcl::PointCloud<PointType>::Ptr get_loop_corrected_pointcloud();
+        nav_msgs::Odometry get_loop_corrected_odometry();
+
+        std::vector<fast_limo::FloorPlaneConstraint> get_loop_closure_floor_constraints() {
+            if (loop_closure_) {
+                return loop_closure_->getFloorConstraints();
+            }
+            return std::vector<fast_limo::FloorPlaneConstraint>();
+        }
 
     private:
         void init_iKFoM();

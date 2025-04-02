@@ -55,6 +55,10 @@ struct fast_limo::Config{
         bool rate_active;               // time rate filter
         float fov_angle;                // FoV filter
         bool fov_active;                // FoV filter
+        struct filter_points{
+            bool active;
+            float max_filter_distance;
+        } filter_points;
     } filters;
 
     struct iKFoM{
@@ -148,6 +152,43 @@ struct fast_limo::Config{
     int sensor_type;        // LiDAR type
     int num_threads;        // num of threads to be used by OpenMP
     double imu_calib_time;  // time to be estimating IMU biases
+
+    struct {
+        bool active = false;
+        float distance_threshold = 10.0;
+        float scan_match_threshold = 0.3;
+        int keyframe_interval = 20;
+        int nearby_frames_to_skip = 100;
+        float loop_weight = 100.0;
+        float odometry_weight = 1.0;
+        bool use_floor_constraints = true;
+        bool use_imu_constraints = true;
+        float floor_plane_weight = 100.0;
+        float imu_orientation_weight = 100.0;
+        // Floor detection parameters
+        float floor_max_angle = 0.1;        // ~5.7 degrees from horizontal
+        float floor_max_height = 0.2;       // 20cm max height difference
+        int floor_min_points = 100;         // Minimum points to detect a floor
+        float floor_normal_thresh = 0.8;    // cos(angle) threshold for normal
+        // Scan context parameters
+        float scan_context_threshold = 0.15;  // Threshold for descriptor matching
+        int scan_context_rings = 20;          // Number of rings in scan context
+        int scan_context_sectors = 60;        // Number of sectors in scan context
+        float scan_context_max_radius = 80.0; // Maximum radius for scan context (meters)
+        float scan_context_max_height = 2.0;  // Maximum height for scan context (meters)
+        // ICP parameters
+        int icp_max_iterations = 100;
+        float icp_transformation_epsilon = 1e-5;
+        float icp_euclidean_fitness_epsilon = 1e-4;
+        float icp_max_correspondence_distance = 2.0;
+        // SCIA parameters
+        bool use_coarse_alignment = true;
+        float coarse_alignment_max_correspondence_distance = 5.0;
+        float coarse_alignment_min_sample_distance = 1.0;
+        int coarse_alignment_max_iterations = 50;
+        int coarse_alignment_correspondence_randomness = 5;
+        int coarse_alignment_number_of_samples = 3;
+    } loop_closure;
 };
 
 #endif

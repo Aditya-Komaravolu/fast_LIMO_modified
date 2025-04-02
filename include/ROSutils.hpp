@@ -20,10 +20,16 @@
 // Std utils
 #include <signal.h>
 
+// Forward declarations
+namespace fast_limo {
+    struct FloorPlaneConstraint;
+}
+
 // Fast LIMO
 #include "fast_limo/Common.hpp"
 #include "fast_limo/Modules/Localizer.hpp"
 #include "fast_limo/Modules/Mapper.hpp"
+#include "fast_limo/Modules/LoopClosure.hpp"
 
 // ROS
 #include <ros/ros.h>
@@ -257,6 +263,68 @@ visualization_msgs::Marker getGroundPlaneMarker(const Eigen::Vector3f& position,
     m.pose.position.z = position[2] - 0.2;  // 5cm below
 
     return m;
+}
+
+// Function to visualize floor planes detected during loop closure
+visualization_msgs::MarkerArray getFloorPlaneMarkers(
+    const std::vector<fast_limo::FloorPlaneConstraint>& floor_constraints,
+    const std::string& frame_id) {
+    
+    visualization_msgs::MarkerArray markers;
+    int id = 0;
+    
+    for (const auto& constraint : floor_constraints) {
+        // Extract floor plane coefficients
+        float a = constraint.floor_coeffs[0];
+        float b = constraint.floor_coeffs[1];
+        float c = constraint.floor_coeffs[2];
+        float d = constraint.floor_coeffs[3];
+        
+        // Calculate a point on the plane (we'll use this as center of the plane marker)
+        Eigen::Vector3f normal(a, b, c);
+        normal.normalize();
+        Eigen::Vector3f point_on_plane = -d * normal;
+        
+        // Create floor plane marker
+        visualization_msgs::Marker marker;
+        marker.header.frame_id = frame_id;
+        marker.header.stamp = ros::Time::now();
+        marker.ns = "floor_planes";
+        marker.id = id++;
+        marker.type = visualization_msgs::Marker::CUBE;
+        marker.action = visualization_msgs::Marker::ADD;
+        
+        // Position at the point on the plane
+        marker.pose.position.x = point_on_plane.x();
+        marker.pose.position.y = point_on_plane.y();
+        marker.pose.position.z = point_on_plane.z();
+        
+        // Orient to align with the plane normal
+        Eigen::Vector3f z_axis(0, 0, 1);
+        Eigen::Quaternionf q = Eigen::Quaternionf::FromTwoVectors(z_axis, normal);
+        marker.pose.orientation.x = q.x();
+        marker.pose.orientation.y = q.y();
+        marker.pose.orientation.z = q.z();
+        marker.pose.orientation.w = q.w();
+        
+        // Make a thin but wide square to represent the floor
+        marker.scale.x = 5.0;  // Size of the plane patch (5m x 5m)
+        marker.scale.y = 5.0;
+        marker.scale.z = 0.02; // Thin plane (2cm)
+        
+        // Semi-transparent blue color
+        marker.color.r = 0.0;
+        marker.color.g = 0.5;
+        marker.color.b = 1.0;
+        marker.color.a = 0.3;  // 30% opacity
+        
+        // Don't automatically delete
+        marker.lifetime = ros::Duration();
+        
+        markers.markers.push_back(marker);
+    }
+    
+    return markers;
 }
 
 }

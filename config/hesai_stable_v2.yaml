@@ -97,6 +97,10 @@ intrinsics:
     # bias: [  0.01, 0.01, 0.01 ]  # [rad/s]
 
 filters:
+  filter_points:
+    active: true
+    max_filter_distance: 15.0
+
   cropBox: # prism crop
     active: false
     box:
@@ -145,7 +149,7 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
     
     # NUM_MATCH_POINTS: 5          # num of points that constitute a match
     # MAX_DIST_PLANE: 2.0      # [m] max distance between points of every match
-    # PLANES_THRESHOLD: 2.5e-2      # [m] threshold to consider if match points are part of a plane 
+    # PLANES_THRESHOLD: 5.0e-2      # [m] threshold to consider if match points are part of a plane 
     # LocalMapping: true            # whether to keep a fixed size map (moving with the robot) or a limitless map (when active, it limits the memory in use)
 
   iKDTree: # Incremental KD Tree lib
@@ -188,8 +192,8 @@ iKFoM:  # Iterative Kalman Filter on Manifolds lib
     default:
       # measurement_noise: 0.01
       # degeneracy_threshold: 0.01
-      measurement_noise: 0.01
-      degeneracy_threshold: 10.0
+      measurement_noise: 0.001
+      degeneracy_threshold: 0.05
       # measurement_noise: 0.01
       # degeneracy_threshold: 10.0
       print_degeneracy_values: false
@@ -215,6 +219,125 @@ save:
 
 
 offline_mode: true
-scan_path: "/media/inkers/Extreme SSD1/12_FEB_OZONE_HESAI3/12_FEB_CP00000_FL9_16_51_24"
+scan_path: "/media/inkers/Extreme SSD/28_MAR_CP00826_FL9_TOWER_B_FULL_RUN_11_41_38"
 # scan_path: /media/inkers/Disk_2TB_SSD/08_FEB_CP00000_FL0_UKN_BELVEDAR_TEST_RUN_14_44_30
 # scan_path: /media/inkers/Disk_2TB_SSD/29_JAN_CP00000_FL6_ETV_HOTEL_R1_15_23_04
+
+# Add loop closure configuration
+loop_closure:
+  active: true                           # Enable/disable loop closure detection entirely
+  distance_threshold: 300.0              # Maximum distance (meters) between keyframes to consider as potential loops
+                                         # Higher: More potential loops but more computation and false positives
+                                         # Lower: Fewer candidates, missing potential loops
+  
+  scan_match_threshold: 0.5              # Maximum allowed score for scan matching (lower is better)
+                                         # Higher: More matches accepted but potential false positives
+                                         # Lower: Stricter matching, fewer false positives but might miss valid loops
+  
+  keyframe_interval: 20                  # Add keyframe every N frames 
+                                         # Higher: Less memory usage, faster processing, but less dense map
+                                         # Lower: More keyframes, better map density, but higher memory and computation
+  
+  nearby_frames_to_skip: 10              # Number of recent frames to skip when searching for loop closures
+                                         # Higher: Avoids false positives with recent frames, but may miss short loops
+                                         # Lower: Can detect smaller loops but risks false positives with sequential frames
+  
+  loop_weight: 100.0                     # Weight of loop closure constraints in graph optimization
+                                         # Higher: Prioritize loop closures over odometry, stronger corrections
+                                         # Lower: More conservative corrections, trust odometry more
+  
+  odometry_weight: 1.0                   # Weight of odometry edges in graph optimization
+                                         # Higher: Trust odometry more, less dramatic loop closure corrections
+                                         # Lower: Less trust in odometry, more influence from loop closures
+  
+  # Floor constraints
+  use_floor_constraints: true            # Whether to use floor plane constraints for optimization
+                                         # Enable for environments with consistent floor planes
+  
+  use_imu_constraints: true              # Whether to use IMU gravity direction for optimization
+                                         # Enable for better roll/pitch stability
+  
+  floor_plane_weight: 100.0              # Weight of floor plane constraints in optimization
+                                         # Higher: Stronger enforcement of floor plane consistency
+                                         # Lower: More flexible floor plane adjustments
+  
+  imu_orientation_weight: 100.0          # Weight of IMU gravity direction in optimization
+                                         # Higher: Stronger enforcement of gravity alignment
+                                         # Lower: More flexible gravity direction
+  
+  floor_max_angle: 0.1                   # Maximum angle (radians) between floor normal and z-axis
+                                         # Higher: More lenient in floor detection, works on slopes
+                                         # Lower: Stricter floor detection, only flat surfaces
+  
+  floor_max_height: 0.2                  # Maximum height difference (meters) for floor planes
+                                         # Higher: Detects floors at different levels
+                                         # Lower: Only detects continuous floors
+  
+  floor_min_points: 100                  # Minimum points required to detect a floor plane
+                                         # Higher: More robust floor detection but might miss small floors
+                                         # Lower: Detects smaller floor regions but risks false positives
+  
+  floor_normal_thresh: 0.8               # Cosine threshold for floor normal (0-1)
+                                         # Higher: Stricter alignment with vertical (closer to 1.0)
+                                         # Lower: More lenient, accepts tilted floors
+  
+  # Scan context parameters
+  scan_context_threshold: 0.1            # Threshold for scan context matching (lower is better)
+                                         # Higher: More matches but potential false positives
+                                         # Lower: Stricter matching, fewer false positives
+  
+  scan_context_rings: 30                 # Number of radial divisions in scan context
+                                         # Higher: More detailed descriptor but more memory and computation
+                                         # Lower: Faster but less distinctive descriptors
+  
+  scan_context_sectors: 90               # Number of angular divisions in scan context
+                                         # Higher: Better angular resolution but more computation
+                                         # Lower: Faster but might miss angular features
+  
+  scan_context_max_radius: 100.0         # Maximum radius (meters) to consider for scan context
+                                         # Higher: Captures more distant features but potentially more noise
+                                         # Lower: More local features, faster computation
+  
+  scan_context_max_height: 3.0           # Maximum height (meters) to consider for scan context
+                                         # Higher: Includes taller structures in descriptor
+                                         # Lower: Focus on ground-level features
+  
+  # ICP parameters
+  icp_max_iterations: 200                # Maximum iterations for ICP convergence
+                                         # Higher: More accurate alignment but slower
+                                         # Lower: Faster but might not fully converge
+  
+  icp_transformation_epsilon: 0.0001     # Minimum transformation change between ICP iterations
+                                         # Higher: Faster convergence but less precise
+                                         # Lower: More precise but might take longer
+  
+  icp_euclidean_fitness_epsilon: 0.001   # Minimum improvement in alignment error to continue
+                                         # Higher: Faster convergence but less precise
+                                         # Lower: More precise but might take longer
+  
+  icp_max_correspondence_distance: 5.0   # Maximum distance between corresponding points
+                                         # Higher: Handles larger initial misalignments but risks incorrect matches
+                                         # Lower: More precise but requires better initial alignment
+  
+  # SCIA parameters (Sample Consensus Initial Alignment)
+  use_coarse_alignment: true             # Whether to use SCIA before ICP
+                                         # Enable for more robust alignment with poor initial guesses
+  
+  coarse_alignment_max_correspondence_distance: 5.0  # Maximum distance for SCIA point correspondences
+                                         # Higher: More correspondences but potential outliers
+                                         # Lower: Fewer, more reliable correspondences but might fail with large offsets
+  
+  coarse_alignment_min_sample_distance: 1.0  # Minimum distance between SCIA samples
+                                         # Higher: Better distributed samples but fewer matches
+                                         # Lower: More dense sampling but potential redundancy
+  
+  coarse_alignment_max_iterations: 50    # Maximum RANSAC iterations for SCIA
+                                         # Higher: More likely to find best alignment but slower
+                                         # Lower: Faster but might miss optimal solution
+  
+  coarse_alignment_correspondence_randomness: 5  # Number of nearest features to use
+                                         # Higher: More robust to noise but slower
+                                         # Lower: Faster but less robust to noise
+  
+  coarse_alignment_number_of_samples: 3  # Number of points to sample for pose hypothesis
+                                         # 3 is minimum, higher increases stability but computation

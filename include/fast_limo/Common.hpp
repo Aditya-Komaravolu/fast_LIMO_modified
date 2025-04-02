@@ -127,6 +127,16 @@ namespace fast_limo {
     Eigen::Quaternionf q;
   };
 
+  struct {
+    bool active = false;
+    float distance_threshold = 10.0;
+    float scan_match_threshold = 0.3;
+    int keyframe_interval = 20;
+    int nearby_frames_to_skip = 100;
+    float loop_weight = 100.0;
+    float odometry_weight = 1.0;
+  } loop_closure;
+
 }
 
 POINT_CLOUD_REGISTER_POINT_STRUCT(fast_limo::Point,
